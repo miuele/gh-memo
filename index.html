@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Sync Memo</title>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        #settings { padding: 10px; background: #f4f4f5; border-bottom: 1px solid #e4e4e7; display: flex; gap: 10px; }
+        #settings input { padding: 5px; font-size: 14px; }
+        #app { display: flex; flex: 1; overflow: hidden; }
+        #sidebar { width: 250px; background: #fafafa; border-right: 1px solid #e4e4e7; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+        #file-list { overflow-y: auto; flex: 1; }
+        .file-item { padding: 8px; cursor: pointer; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .file-item:hover { background: #e4e4e7; }
+        .file-item.active { background: #d4d4d8; font-weight: bold; }
+        .status-icon { font-size: 12px; }
+        #editor-container { flex: 1; display: flex; flex-direction: column; padding: 10px; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        button { padding: 6px 12px; cursor: pointer; }
+        #note-content { flex: 1; padding: 10px; font-family: monospace; font-size: 14px; resize: none; border: 1px solid #e4e4e7; }
+        #status { font-size: 12px; color: #52525b; margin-left: auto; }
+        .error { color: #dc2626 !important; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="settings">
+        <input type="password" id="gh-token" placeholder="GitHub PAT" />
+        <input type="text" id="gh-owner" placeholder="Owner (e.g., username)" />
+        <input type="text" id="gh-repo" placeholder="Repo Name" />
+        <button onclick="saveSettings()">Save Settings</button>
+		<button onclick="clearLocalDatabase()" style="color: #dc2626; border-color: #dc2626;">Clear Local DB</button>
+    </div>
+
+    <div id="app">
+        <div id="sidebar">
+            <button onclick="createNewFile()">+ New Note</button>
+            <button onclick="refreshTree()">🔄 Refresh Tree</button>
+            <div id="file-list"></div>
+        </div>
+        <div id="editor-container">
+            <div class="toolbar">
+                <strong id="current-file-label">Select a file</strong>
+                <button id="btn-pull" onclick="pullFromGitHub()" disabled>Pull Latest</button>
+                <button id="btn-push" onclick="pushToGitHub()" disabled>Push to GitHub</button>
+                <span id="status"></span>
+            </div>
+            <textarea id="note-content" disabled oninput="handleTyping()"></textarea>
+        </div>
+    </div>
+
+    <script type="module">
+        import { Octokit } from "https://esm.sh/@octokit/rest";
+
+        // 1. Initialize Dexie DB (Updated Schema)
+        const db = new Dexie("MemoAppDB");
+        db.version(2).stores({
+            notes: 'filename, content, last_synced_sha, is_dirty, sync_status'
+        });
+
+        let currentFilename = null;
+        let typingTimeout = null;
+
+        const encodeBase64 = (str) => btoa(unescape(encodeURIComponent(str)));
+        const decodeBase64 = (str) => decodeURIComponent(escape(atob(str)));
+
+        document.getElementById('gh-token').value = localStorage.getItem('ghToken') || '';
+        document.getElementById('gh-owner').value = localStorage.getItem('ghOwner') || '';
+        document.getElementById('gh-repo').value = localStorage.getItem('ghRepo') || '';
+
+        window.saveSettings = () => {
+            localStorage.setItem('ghToken', document.getElementById('gh-token').value);
+            localStorage.setItem('ghOwner', document.getElementById('gh-owner').value);
+            localStorage.setItem('ghRepo', document.getElementById('gh-repo').value);
+            showStatus('Settings saved.');
+        };
+
+        function getOctokit() {
+            const auth = localStorage.getItem('ghToken');
+            if (!auth) throw new Error("GitHub token missing.");
+            return new Octokit({ auth });
+        }
+
+        function getRepoConfig() {
+            return {
+                owner: localStorage.getItem('ghOwner'),
+                repo: localStorage.getItem('ghRepo')
+            };
+        }
+
+        function showStatus(msg, isError = false) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = msg;
+            statusEl.className = isError ? 'error' : '';
+            if (!isError) setTimeout(() => statusEl.textContent = '', 3000);
+        }
+
+        const statusIcons = {
+            'synced': '🟢',
+            'local_newer': '🟡',
+            'remote_newer': '🔵',
+            'conflict': '🔴',
+            'new_local': '🆕'
+        };
+
+        // 2. UI and Local DB Logic
+        async function loadFileList() {
+            const notes = await db.notes.toArray();
+            const listEl = document.getElementById('file-list');
+            listEl.innerHTML = '';
+            
+            notes.forEach(note => {
+                const div = document.createElement('div');
+                div.className = `file-item ${note.filename === currentFilename ? 'active' : ''}`;
+                div.onclick = () => openFile(note.filename);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = note.filename;
+                
+                const iconSpan = document.createElement('span');
+                iconSpan.className = 'status-icon';
+                iconSpan.textContent = statusIcons[note.sync_status] || '🆕';
+                iconSpan.title = note.sync_status || 'new_local';
+                
+                div.appendChild(nameSpan);
+                div.appendChild(iconSpan);
+                listEl.appendChild(div);
+            });
+        }
+
+		async function init() {
+			await loadFileList();
+			if (localStorage.getItem('ghToken')) {
+				await refreshTree();
+			}
+		}
+
+		async function openFile(filename) {
+			currentFilename = filename;
+			const note = await db.notes.get(filename);
+
+			document.getElementById('current-file-label').textContent = filename;
+			const textarea = document.getElementById('note-content');
+			textarea.value = note.content;
+			textarea.disabled = false;
+
+			document.getElementById('btn-pull').disabled = false;
+			document.getElementById('btn-push').disabled = false;
+
+			loadFileList();
+		}
+
+        window.createNewFile = async () => {
+            const filename = prompt("Enter filename (e.g., balance_equations.txt):");
+            if (!filename) return;
+            const exists = await db.notes.get(filename);
+            if (exists) return alert("File already exists.");
+            
+            await db.notes.put({ 
+                filename, content: '', last_synced_sha: null, is_dirty: true, sync_status: 'new_local' 
+            });
+            loadFileList();
+            openFile(filename);
+        };
+
+        window.handleTyping = async () => {
+            if (!currentFilename) return;
+            const content = document.getElementById('note-content').value;
+            showStatus('Saving locally...');
+            
+            const note = await db.notes.get(currentFilename);
+            const newStatus = note.sync_status === 'synced' ? 'local_newer' : note.sync_status;
+
+            await db.notes.update(currentFilename, { 
+                content, is_dirty: true, sync_status: newStatus 
+            });
+            
+            loadFileList();
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => showStatus('Saved locally.'), 500);
+        };
+
+        // 3. GitHub Sync & Tree Logic
+		window.refreshTree = async () => {
+            const auth = localStorage.getItem('ghToken');
+            if (!auth) return; // Don't try to fetch if not configured
+
+            showStatus('Fetching remote tree...');
+            try {
+                const octokit = getOctokit();
+                const { owner, repo } = getRepoConfig();
+                
+                // Get default branch to avoid 404s
+                const repoInfo = await octokit.rest.repos.get({ owner, repo });
+                const branch = repoInfo.data.default_branch;
+
+                // Fetch the entire file tree in one call
+                const treeRes = await octokit.rest.git.getTree({
+                    owner, repo, tree_sha: branch, recursive: '1'
+                });
+
+                const remoteFiles = treeRes.data.tree.filter(f => f.type === 'blob');
+                const localNotes = await db.notes.toArray();
+                const localMap = new Map(localNotes.map(n => [n.filename, n]));
+
+                // 1. Process all files from GitHub
+                for (const remoteFile of remoteFiles) {
+                    const localNote = localMap.get(remoteFile.path);
+                    
+                    if (localNote) {
+                        // File exists locally, update its status
+                        let status = 'new_local';
+                        if (remoteFile.sha !== localNote.last_synced_sha) {
+                            status = localNote.is_dirty ? 'conflict' : 'remote_newer';
+                        } else {
+                            status = localNote.is_dirty ? 'local_newer' : 'synced';
+                        }
+                        await db.notes.update(localNote.filename, { sync_status: status });
+                        localMap.delete(remoteFile.path); // Mark as processed
+                    } else {
+                        // NEW remote file! Add a placeholder to local DB
+                        await db.notes.put({
+                            filename: remoteFile.path,
+                            content: '', // Empty until user clicks "Pull Latest"
+                            last_synced_sha: null, 
+                            is_dirty: false,
+                            sync_status: 'remote_newer' // 🔵 Icon indicates it needs pulling
+                        });
+                    }
+                }
+                
+                // 2. Any files left in localMap don't exist on GitHub
+                for (const [filename, note] of localMap) {
+                    await db.notes.update(filename, { sync_status: 'new_local' });
+                }
+                
+                await loadFileList();
+                showStatus('Tree refreshed.');
+            } catch (err) {
+                showStatus('Error fetching tree: ' + err.message, true);
+            }
+        };
+
+        window.pullFromGitHub = async () => {
+            if (!currentFilename) return;
+            showStatus('Pulling...');
+            try {
+                const octokit = getOctokit();
+                const { owner, repo } = getRepoConfig();
+                
+                const response = await octokit.rest.repos.getContent({
+                    owner, repo, path: currentFilename
+                });
+
+                const content = decodeBase64(response.data.content);
+                const sha = response.data.sha;
+
+                await db.notes.put({ 
+                    filename: currentFilename, content, last_synced_sha: sha, is_dirty: false, sync_status: 'synced' 
+                });
+                
+                document.getElementById('note-content').value = content;
+                loadFileList();
+                showStatus('Pulled successfully.');
+            } catch (err) {
+                showStatus('Error pulling: ' + err.message, true);
+            }
+        };
+
+        window.pushToGitHub = async () => {
+            if (!currentFilename) return;
+            showStatus('Pushing...');
+            try {
+                const octokit = getOctokit();
+                const { owner, repo } = getRepoConfig();
+                const localNote = await db.notes.get(currentFilename);
+                
+                if (localNote.sync_status === 'conflict' || localNote.sync_status === 'remote_newer') {
+                    showStatus('Conflict detected. Please pull or resolve first.', true);
+                    return;
+                }
+
+                const response = await octokit.rest.repos.createOrUpdateFileContents({
+                    owner, repo, path: currentFilename,
+                    message: `Update ${currentFilename}`,
+                    content: encodeBase64(localNote.content),
+                    sha: localNote.last_synced_sha || undefined
+                });
+
+                await db.notes.update(currentFilename, { 
+                    last_synced_sha: response.data.content.sha, is_dirty: false, sync_status: 'synced' 
+                });
+                
+                loadFileList();
+                showStatus('Pushed successfully.');
+            } catch (err) {
+                if (err.status === 409) {
+                    await db.notes.update(currentFilename, { sync_status: 'conflict' });
+                    loadFileList();
+                    showStatus('Conflict: File modified remotely.', true);
+                } else {
+                    showStatus('Error pushing: ' + err.message, true);
+                }
+            }
+        };
+
+		window.clearLocalDatabase = async () => {
+			const confirmed = confirm("Are you sure you want to delete all local notes? This will not delete files on GitHub, but any unsynced local changes will be lost permanently.");
+
+			if (confirmed) {
+				showStatus('Clearing database...');
+				await db.notes.clear();
+
+				// Reset the UI state
+				currentFilename = null;
+				document.getElementById('current-file-label').textContent = 'Select a file';
+				document.getElementById('note-content').value = '';
+				document.getElementById('note-content').disabled = true;
+				document.getElementById('btn-pull').disabled = true;
+				document.getElementById('btn-push').disabled = true;
+
+				await loadFileList();
+				showStatus('Local database cleared.');
+			}
+		};
+
+		init();
+    </script>
+</body>
+</html>
