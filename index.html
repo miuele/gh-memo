@@ -3,6 +3,28 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+		<!-- Tell the browser this is a PWA -->
+		<link rel="manifest" href="manifest.json">
+		<meta name="theme-color" content="#0066cc">
+
+		<!-- Apple/iOS specific tags to force full-screen standalone mode -->
+		<meta name="mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+		<meta name="apple-mobile-web-app-title" content="Notes">
+		<link rel="apple-touch-icon" href="icon.png">
+
+		<!-- Register the Service Worker -->
+		<script>
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', () => {
+					navigator.serviceWorker.register('sw.js')
+						.then(reg => console.log('Service Worker registered', reg))
+						.catch(err => console.error('Service Worker failed', err));
+				});
+			}
+		</script>
+
 		<title>Local-First Notes</title>
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
 		<style>
@@ -551,12 +573,12 @@
 					const localNote = await dbGet(currentFilename);
 
 					if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
-						const msg = `Conflict in ${currentFilename}!\n\n1: Insert Diff markers (Default)\n2: Overwrite local with remote (Revert)\n3: Cancel pull`;
-						const choice = prompt(msg, "1");
+						const msg = `Conflict in ${currentFilename}!\n\nd: Insert Diff markers (Default)\nw: Overwrite local with remote (Revert)`;
+						const choice = prompt(msg, "d");
 
-						if (choice === "3") {
+						if (choice === null) {
 							return showStatus("Pull cancelled.");
-						} else if (choice === "2") {
+						} else if (choice === "w") {
 							localNote.content = remoteContent;
 							localNote.is_dirty = false;
 						} else {
