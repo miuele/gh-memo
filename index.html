@@ -16,13 +16,15 @@
         .file-item:hover { background: #e4e4e7; }
         .file-item.active { background: #d4d4d8; font-weight: bold; }
         .status-icon { font-size: 12px; }
-        #editor-container { flex: 1; display: flex; flex-direction: column; padding: 10px; }
-        .toolbar { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        #editor-container { flex: 1; display: flex; flex-direction: column; }
+        .toolbar { display: flex; gap: 10px; margin: 10px; align-items: center; }
         button { padding: 6px 12px; cursor: pointer; }
-        #note-content { flex: 1; padding: 10px; font-family: monospace; font-size: 14px; resize: none; border: 1px solid #e4e4e7; }
+        #note-content { flex: 1; padding: 10px; font-family: monospace; font-size: 16px; resize: none; border: 1px solid #e4e4e7; }
+		#note-content:focus { outline:none; }
         #status { font-size: 12px; color: #52525b; margin-left: auto; }
-        .error { color: #dc2626 !important; font-weight: bold; }
-    </style>
+		.error { color: #dc2626 !important; font-weight: bold; }
+		.match-count { font-size: 11px; color: #71717a; margin-left: 6px; font-weight: normal; }
+	</style>
 </head>
 <body>
 
@@ -34,13 +36,20 @@
 		<button onclick="clearLocalDatabase()" style="color: #dc2626; border-color: #dc2626;">Clear Local DB</button>
     </div>
 
-    <div id="app">
-        <div id="sidebar">
-            <button onclick="createNewFile()">+ New Note</button>
-            <button onclick="refreshTree()">🔄 Refresh Tree</button>
-            <div id="file-list"></div>
-        </div>
-        <div id="editor-container">
+	<div id="app">
+		<div id="sidebar">
+			<input type="search" id="search-bar" placeholder="Search... (Enter for deep search)" 
+					oninput="handleTypingSearch()" 
+					onkeydown="handleDeepSearch(event)" 
+					style="width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #e4e4e7; border-radius: 4px; font-family: inherit;">
+
+			<div style="display: flex; gap: 5px; margin-bottom: 10px;">
+		        <button onclick="createNewFile()" style="flex: 1;">+ New Note</button>
+		        <button onclick="refreshTree()" title="Refresh Tree">🔄</button>
+		    </div>
+		    <div id="file-list"></div>
+		</div>
+		<div id="editor-container">
             <div class="toolbar">
                 <strong id="current-file-label">Select a file</strong>
                 <button id="btn-pull" onclick="pullFromGitHub()" disabled>Pull Latest</button>
@@ -106,29 +115,97 @@
         };
 
         // 2. UI and Local DB Logic
-        async function loadFileList() {
-            const notes = await db.notes.toArray();
-            const listEl = document.getElementById('file-list');
-            listEl.innerHTML = '';
-            
-            notes.forEach(note => {
-                const div = document.createElement('div');
-                div.className = `file-item ${note.filename === currentFilename ? 'active' : ''}`;
-                div.onclick = () => openFile(note.filename);
-                
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = note.filename;
-                
-                const iconSpan = document.createElement('span');
-                iconSpan.className = 'status-icon';
-                iconSpan.textContent = statusIcons[note.sync_status] || '🆕';
-                iconSpan.title = note.sync_status || 'new_local';
-                
-                div.appendChild(nameSpan);
-                div.appendChild(iconSpan);
-                listEl.appendChild(div);
-            });
-        }
+		let isDeepSearch = false;
+		
+		window.handleTypingSearch = () => {
+		    // Revert to fast filename filtering the moment the user alters the text
+		    isDeepSearch = false;
+		    loadFileList();
+		};
+		
+		window.handleDeepSearch = (event) => {
+		    if (event.key === 'Enter') {
+		        event.preventDefault(); // Stop standard browser behavior
+		        isDeepSearch = true;
+		        loadFileList();
+		    }
+		};
+				
+		async function loadFileList() {
+		    const query = document.getElementById('search-bar') ? document.getElementById('search-bar').value.trim() : '';
+		    const q = query.toLowerCase();
+		    let notes = await db.notes.toArray();
+		
+		    const listEl = document.getElementById('file-list');
+		    listEl.innerHTML = '';
+		
+		    if (q) {
+		        if (!isDeepSearch) {
+		            // STATE 1: Fast Filename Filter
+		            notes = notes.filter(note => note.filename.toLowerCase().includes(q));
+		        } else {
+		            // STATE 2: Deep Search & Frequency Sort
+		            // Escape special characters so math/code searches don't break the regex
+		            const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		            const regex = new RegExp(escapedQuery, 'gi');
+		
+		            notes = notes.map(note => {
+		                const content = note.content || '';
+		                const matches = content.match(regex);
+		                note.matchCount = matches ? matches.length : 0;
+		                note.matchesFilename = note.filename.toLowerCase().includes(q);
+		                return note;
+		            }).filter(note => note.matchCount > 0 || note.matchesFilename);
+		
+		            // Sort logic: Highest match count bubbles to the top. 
+		            // If there's a tie (e.g., both 0 matches but filenames match), sort alphabetically.
+		            notes.sort((a, b) => {
+		                if (b.matchCount !== a.matchCount) {
+		                    return b.matchCount - a.matchCount;
+		                }
+		                return a.filename.localeCompare(b.filename);
+		            });
+		        }
+		    }
+		
+		    // Render the UI
+		    notes.forEach(note => {
+		        const div = document.createElement('div');
+		        div.className = `file-item ${note.filename === currentFilename ? 'active' : ''}`;
+		        div.onclick = () => openFile(note.filename);
+		        
+		        // Container to stack the filename and the match badge cleanly
+		        const textContainer = document.createElement('div');
+		        textContainer.style.display = 'flex';
+		        textContainer.style.flexDirection = 'column';
+		
+		        const nameSpan = document.createElement('span');
+		        nameSpan.textContent = note.filename;
+		        if (q && note.filename.toLowerCase().includes(q)) {
+		            nameSpan.style.fontWeight = 'bold'; // Highlight if filename matches
+		        }
+		        textContainer.appendChild(nameSpan);
+		
+		        // Inject the subtle match badge if we did a deep search and found hits
+		        if (isDeepSearch && note.matchCount > 0) {
+		            const badgeSpan = document.createElement('span');
+		            badgeSpan.textContent = `${note.matchCount} match${note.matchCount > 1 ? 'es' : ''}`;
+		            badgeSpan.style.fontSize = '11px';
+		            badgeSpan.style.color = '#71717a';
+		            badgeSpan.style.marginTop = '2px';
+		            textContainer.appendChild(badgeSpan);
+		        }
+		        
+		        const iconSpan = document.createElement('span');
+		        iconSpan.className = 'status-icon';
+		        iconSpan.textContent = statusIcons[note.sync_status] || '🆕';
+		        iconSpan.title = note.sync_status || 'new_local';
+		        
+		        div.appendChild(textContainer);
+		        div.appendChild(iconSpan);
+		        listEl.appendChild(div);
+		    });
+		}
 
 		async function init() {
 			await loadFileList();
