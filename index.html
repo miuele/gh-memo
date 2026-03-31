@@ -59,38 +59,6 @@
 			line-height: 1.5; outline: none; background: transparent; transition: opacity 0.2s;
 		}
 		#note-content:disabled { cursor: not-allowed; }
-		/* The new vertical toggle strip */
-		#toggle-sidebar {
-			width: 6px;
-			cursor: col-resize;
-			background: transparent;
-			border: none;
-			transition: background 0.2s;
-			height: 100%;
-			z-index: 10;
-			position: relative;
-			margin: 0;
-			padding: 0;
-			flex-shrink: 0;
-		}
-
-		#toggle-sidebar:hover {
-			background: rgba(0, 102, 204, 0.2); /* Light blue highlight on hover */
-			border-right: 2px solid var(--accent);
-		}
-
-		/* Ensure the sidebar transition is still smooth */
-		#sidebar {
-			transition: width 0.3s ease;
-			overflow-x: hidden;
-			white-space: nowrap;
-			flex-shrink: 0;
-		}
-
-		#sidebar.collapsed {
-			width: 0;
-			border-right: none;
-		}
 		</style>
 	</head>
 	<body>
@@ -102,19 +70,16 @@
 				<button id="push-btn" onclick="pushToGitHub()">⬆️ Push</button>
 				<button onclick="configureGitHub()">⚙️ Setup</button>
 				<button onclick="clearLocalDB()" style="color: var(--danger);">🗑️ Clear DB</button>
-				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)" oninput="handleSearchInput()" onkeydown="handleSearchEnter(event)">
+				<input type="text" id="search-bar" placeholder="Filter files... (Enter for deep search)" oninput="handleSearchInput()" onkeydown="handleSearchEnter(event)">
 			</div>
 			<ul id="file-list"></ul>
 		</div>
-		<div id="toggle-sidebar" onclick="toggleSidebar()" title="Toggle Sidebar"></div>
+
 		<div id="main">
 			<div id="status-bar"></div>
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
-				<div style="display: flex; gap: 10px;">
-					<button id="revert-btn" onclick="revertFile()" style="display:none;">↩️ Revert to Remote</button>
-					<button id="delete-btn" onclick="deleteFile()" style="display:none; color: var(--danger);">Delete</button>
-				</div>
+				<button id="delete-btn" onclick="deleteFile()" style="display:none; color: var(--danger);">Delete</button>
 			</div>
 			<textarea id="note-content" oninput="handleTyping()" disabled placeholder="Select or create a file to start typing..."></textarea>
 		</div>
@@ -122,11 +87,10 @@
 		<script>
 			/* =====================================================================
 			1. CONFIGURATION & STATE
-===================================================================== */
+		===================================================================== */
 			let GITHUB_TOKEN = localStorage.getItem('gh_token') || '';
 			let GITHUB_OWNER = localStorage.getItem('gh_owner') || '';
 			let GITHUB_REPO = localStorage.getItem('gh_repo') || '';
-			let GITHUB_BRANCH = localStorage.getItem('gh_branch') || 'main'; // Added Branch
 
 			let currentFilename = null;
 			const dbName = 'NotesDB';
@@ -155,12 +119,9 @@
 				GITHUB_TOKEN = prompt('GitHub Personal Access Token:', GITHUB_TOKEN) || GITHUB_TOKEN;
 				GITHUB_OWNER = prompt('GitHub Username:', GITHUB_OWNER) || GITHUB_OWNER;
 				GITHUB_REPO = prompt('GitHub Repository Name:', GITHUB_REPO) || GITHUB_REPO;
-				GITHUB_BRANCH = prompt('GitHub Branch (e.g., main or master):', GITHUB_BRANCH) || GITHUB_BRANCH;
-
 				localStorage.setItem('gh_token', GITHUB_TOKEN);
 				localStorage.setItem('gh_owner', GITHUB_OWNER);
 				localStorage.setItem('gh_repo', GITHUB_REPO);
-				localStorage.setItem('gh_branch', GITHUB_BRANCH);
 				showStatus('Configuration saved. Ready to pull.', false);
 			}
 
@@ -230,7 +191,6 @@
 						document.getElementById('note-content').disabled = true;
 						document.getElementById('current-filename').innerText = 'No file selected';
 						document.getElementById('delete-btn').style.display = 'none';
-						document.getElementById('revert-btn').style.display = 'none';
 
 						loadFileList();
 						syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
@@ -339,7 +299,6 @@
 				document.getElementById('current-filename').innerText = filename;
 				document.getElementById('delete-btn').style.display = 'block';
 				document.getElementById('status-bar').style.display = 'none';
-				document.getElementById('revert-btn').style.display = 'block';
 
 				loadFileList(document.getElementById('search-bar').value, false);
 			}
@@ -361,7 +320,7 @@
 			}
 
 			async function createFile() {
-				let filename = prompt('Enter filename (e.g., folder/draft.txt):');
+				let filename = prompt('Enter filename (e.g., draft.txt):');
 				if (!filename) return;
 				if (!filename.includes('.')) filename += '.txt'; 
 
@@ -390,7 +349,6 @@
 				document.getElementById('note-content').disabled = true;
 				document.getElementById('current-filename').innerText = 'No file selected';
 				document.getElementById('delete-btn').style.display = 'none';
-				document.getElementById('revert-btn').style.display = 'none';
 
 				syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 				loadFileList();
@@ -412,8 +370,8 @@
 			}
 
 			/* =====================================================================
-				6. GITHUB API & MERGE LOGIC
-				===================================================================== */
+		   6. GITHUB API & MERGE LOGIC
+		===================================================================== */
 			function getAuthHeaders() {
 				if (!GITHUB_TOKEN) throw new Error('GitHub token not configured.');
 				return {
@@ -423,107 +381,111 @@
 				};
 			}
 
-			async function pullFromGitHub() {
-				try {
-					showStatus('Pulling from GitHub...');
-					// USE THE RECURSIVE TREES API
-					const treeUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/${GITHUB_BRANCH}?recursive=1`;
-					const fetchOptions = { headers: getAuthHeaders(), cache: 'no-store' };
+async function pullFromGitHub() {
+    try {
+        showStatus('Pulling from GitHub...');
+        const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/`;
+        const fetchOptions = { headers: getAuthHeaders(), cache: 'no-store' };
 
-					const res = await fetch(treeUrl, fetchOptions);
-					if (!res.ok) throw new Error('Failed to fetch repo tree. Check if repository and branch exist.');
+        const res = await fetch(url, fetchOptions);
+        if (!res.ok) throw new Error('Failed to fetch repo tree.');
 
-					const treeData = await res.json();
-					// Filter out directories, we only want the files ('blobs')
-					const files = treeData.tree.filter(item => item.type === 'blob'); 
-					let skippedFiles = [];
+        const files = await res.json();
+        let skippedFiles = [];
 
-					for (const file of files) {
-						// Note: The Trees API uses 'file.path' instead of 'file.name'
-						const localNote = await dbGet(file.path);
+        for (const file of files) {
+            if (file.type !== 'file') continue;
 
-						if (localNote && localNote.last_synced_sha === file.sha) {
-							continue; // Smart SHA Check: Skip downloading unchanged files
-						}
+            const localNote = await dbGet(file.name);
 
-						// Fetch the raw Base64 blob data
-						const blobUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/blobs/${file.sha}`;
-						const blobRes = await fetch(blobUrl, fetchOptions);
-						const blobData = await blobRes.json();
-						const remoteContent = atou(blobData.content);
+            // 1. THE SMART PULL: If SHAs match, skip downloading the content entirely
+            if (localNote && localNote.last_synced_sha === file.sha) {
+                continue;
+            }
 
-						if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
+            // Only fetch heavy content if SHAs differ
+            const fileRes = await fetch(file.url, fetchOptions);
+            const fileData = await fileRes.json();
+            const remoteContent = atou(fileData.content);
 
-							const msg = `Conflict in ${file.path}!\n\n1: Insert Diff markers (Default)\n2: Overwrite local with remote\n3: Cancel pull for this file`;
-							const choice = prompt(msg, "1");
+            // 2. CONFLICT DETECTION
+            if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
+                
+                // 3. THE FOCUS CHECK: Only prompt if it's the active file
+                if (currentFilename === file.name) {
+                    const msg = `Conflict in ${file.name}!\n\n1: Insert Diff markers (Default)\n2: Overwrite local with remote\n3: Cancel pull for this file`;
+                    const choice = prompt(msg, "1");
 
-							if (choice === "3") {
-								skippedFiles.push(file.path);
-								continue;
-							} else if (choice === "2") {
-								await dbPut({
-									filename: file.path,
-									content: remoteContent,
-									last_synced_sha: file.sha,
-									is_dirty: false,
-									sync_status: 'synced'
-								});
+                    if (choice === "3") {
+                        skippedFiles.push(file.name);
+                        continue;
+                    } else if (choice === "2") {
+                        await dbPut({
+                            filename: file.name,
+                            content: remoteContent,
+                            last_synced_sha: file.sha,
+                            is_dirty: false,
+                            sync_status: 'synced'
+                        });
+                        document.getElementById('note-content').value = remoteContent;
+                    } else {
+                        showStatus(`Conflict in ${file.name}. Injecting merge markers...`, true);
+                        if (typeof Diff !== 'undefined') {
+                            let mergedText = "";
+                            const diffBlocks = Diff.diffLines(remoteContent, localNote.content);
+                            diffBlocks.forEach(part => {
+                                if (part.added) mergedText += `<<<<<<< LOCAL\n${part.value}=======\n`;
+                                else if (part.removed) mergedText += `${part.value}>>>>>>> REMOTE\n`;
+                                else mergedText += part.value;
+                            });
+                            localNote.content = mergedText;
+                        } else {
+                            localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
+                        }
 
-								if (currentFilename === file.path) {
-									document.getElementById('note-content').value = remoteContent;
-								}
-							} else {
-								showStatus(`Conflict in ${file.path}. Injecting merge markers...`, true);
+                        localNote.last_synced_sha = file.sha; 
+                        localNote.sync_status = 'conflict';
+                        await dbPut(localNote);
+                        document.getElementById('note-content').value = localNote.content;
+                    }
+                } else {
+                    // FILE IS IN BACKGROUND: Do not prompt. Protect local data. Flag as conflict.
+                    skippedFiles.push(file.name);
+                    localNote.sync_status = 'conflict';
+                    await dbPut(localNote);
+                    continue; // Skip to next file safely
+                }
 
-								if (typeof Diff !== 'undefined') {
-									let mergedText = "";
-									const diffBlocks = Diff.diffLines(remoteContent, localNote.content);
-									diffBlocks.forEach(part => {
-										if (part.added) mergedText += `<<<<<<< LOCAL\n${part.value}=======\n`;
-										else if (part.removed) mergedText += `${part.value}>>>>>>> REMOTE\n`;
-										else mergedText += part.value;
-									});
-									localNote.content = mergedText;
-								} else {
-									localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
-								}
+            } else {
+                // NORMAL CLEAN PULL
+                await dbPut({
+                    filename: file.name,
+                    content: remoteContent,
+                    last_synced_sha: file.sha,
+                    is_dirty: false,
+                    sync_status: 'synced'
+                });
 
-								localNote.last_synced_sha = file.sha; 
-								localNote.sync_status = 'conflict';
-								await dbPut(localNote);
+                if (currentFilename === file.name) {
+                    document.getElementById('note-content').value = remoteContent;
+                }
+            }
+        }
 
-								if (currentFilename === file.path) {
-									document.getElementById('note-content').value = localNote.content;
-								}
-							}
-						} else {
-							await dbPut({
-								filename: file.path,
-								content: remoteContent,
-								last_synced_sha: file.sha,
-								is_dirty: false,
-								sync_status: 'synced'
-							});
+        // 4. FEEDBACK
+        if (skippedFiles.length > 0) {
+            showStatus(`Pull complete. ⚠️ Skipped background conflicts: ${skippedFiles.join(', ')}. Open them to resolve.`, true);
+        } else {
+            showStatus('Pull complete. All files up to date.');
+        }
 
-							if (currentFilename === file.path) {
-								document.getElementById('note-content').value = remoteContent;
-							}
-						}
-					}
+        syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+        loadFileList();
 
-					if (skippedFiles.length > 0) {
-						showStatus(`Pull complete. ⚠️ Skipped: ${skippedFiles.join(', ')}`, true);
-					} else {
-						showStatus('Pull complete. All files up to date.');
-					}
-
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList();
-
-				} catch (err) {
-					showStatus(`Pull failed: ${err.message}`, true);
-				}
-			}
+    } catch (err) {
+        showStatus(`Pull failed: ${err.message}`, true);
+    }
+}
 
 			async function pushToGitHub() {
 				try {
@@ -571,55 +533,6 @@
 				}
 			}
 
-			async function revertFile() {
-				if (!currentFilename) return;
-
-				// The Brutal Safety Check
-				if (!confirm(`Discard all local edits to ${currentFilename} and restore the GitHub version? This will permanently delete any un-pushed typing.`)) return;
-
-				try {
-					showStatus(`Fetching remote version of ${currentFilename}...`);
-
-					// Fetch just this specific file directly
-					const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${currentFilename}`;
-					const fetchOptions = { headers: getAuthHeaders(), cache: 'no-store' };
-
-					const res = await fetch(url, fetchOptions);
-
-					if (res.status === 404) {
-						throw new Error("File does not exist on GitHub yet. Push it first.");
-					}
-					if (!res.ok) throw new Error("Failed to fetch remote file.");
-
-					const fileData = await res.json();
-					const remoteContent = atou(fileData.content);
-
-					// Overwrite the local IndexedDB record
-					const localNote = await dbGet(currentFilename);
-					localNote.content = remoteContent;
-					localNote.last_synced_sha = fileData.sha;
-					localNote.is_dirty = false;
-					localNote.sync_status = 'synced'; // Clears any conflict status
-
-					await dbPut(localNote);
-
-					// Instantly update the text box you are looking at
-					document.getElementById('note-content').value = remoteContent;
-
-					// Tell the other monitors to update their sidebars (removes yellow/red dots)
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList(document.getElementById('search-bar').value, false);
-
-					showStatus('File reverted to GitHub version.');
-
-				} catch (err) {
-					showStatus(`Revert failed: ${err.message}`, true);
-				}
-			}
-			function toggleSidebar() {
-				const sidebar = document.getElementById('sidebar');
-				sidebar.classList.toggle('collapsed');
-			}
 			window.onload = () => loadFileList();
 		</script>
 	</body>
