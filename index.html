@@ -115,6 +115,14 @@
 			    #sidebar { width: 100%; position: absolute; height: 100%; z-index: 50; }
 			    #sidebar.collapsed { width: 0; }
 			}
+			.pin-tag {
+			    background: var(--accent); color: white; padding: 3px 8px; border-radius: 12px;
+			    font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+			    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			}
+			.pin-tag:hover { background: #005bb5; }
+			.pin-rm { font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1; }
+			.pin-rm:hover { color: white; }
 		</style>
 	</head>
 	<body>
@@ -124,7 +132,9 @@
 				<button onclick="Actions.createFile()">+ New</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
 				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
+    <button onclick="Actions.addPin()">📌 Pin</button>
 				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
+    			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
 				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
 			</div>
 			<ul id="file-list"></ul>
@@ -146,7 +156,6 @@
 				<div id="note-viewer"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
-			<div id="note-viewer"></div>
 			<div id="status-bar"></div>
 		</div>
 
@@ -160,8 +169,9 @@
 					owner: localStorage.getItem('gh_owner') || '',
 					repo: localStorage.getItem('gh_repo') || '',
 					branch: localStorage.getItem('gh_branch') || 'main',
-					isViewMode: false,
 				},
+				pins: JSON.parse(localStorage.getItem('notes_pins') || '[]'),
+				isViewMode: false,
 				currentFilename: null,
 				typingTimer: null,
 				syncChannel: new BroadcastChannel('github_notes_sync')
@@ -173,6 +183,7 @@
 			const DOM = {};
 			function initDOM() {
 				DOM.sidebar = document.getElementById('sidebar');
+				DOM.pinContainer = document.getElementById('pin-container');
 				DOM.searchBar = document.getElementById('search-bar');
 				DOM.fileList = document.getElementById('file-list');
 				DOM.editor = document.getElementById('note-content');
@@ -360,6 +371,26 @@
 					DOM.statusBar.style.display = 'flex';
 					DOM.statusBar.className = isError ? 'error' : '';
 					if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
+				},
+				renderPins() {
+				    DOM.pinContainer.innerHTML = '';
+				    AppState.pins.forEach(pin => {
+				        const el = document.createElement('span');
+				        el.className = 'pin-tag';
+				        el.onclick = () => Actions.handlePinClick(pin);
+				        
+				        const txt = document.createElement('span');
+				        txt.innerText = pin;
+				        
+				        const rm = document.createElement('span');
+				        rm.className = 'pin-rm';
+				        rm.innerHTML = '&times;';
+				        rm.onclick = (e) => Actions.removePin(pin, e);
+				        
+				        el.appendChild(txt);
+				        el.appendChild(rm);
+				        DOM.pinContainer.appendChild(el);
+				    });
 				},
 				resetEditor() {
 					AppState.isViewMode = false;
@@ -677,6 +708,39 @@
 						UI.showStatus(`Push error: ${err.message}`, true);
 					}
 				},
+				
+				addPin() {
+				    const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
+											AppState.currentFilename || '');
+				    if (!pin) return;
+				    
+				    if (!AppState.pins.includes(pin)) {
+				        AppState.pins.push(pin);
+				        localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
+				        UI.renderPins();
+				    }
+				},
+				
+				removePin(pin, event) {
+				    event.stopPropagation(); // Prevent the click from also triggering the pin action
+				    AppState.pins = AppState.pins.filter(p => p !== pin);
+				    localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
+				    UI.renderPins();
+				},
+				
+				async handlePinClick(pin) {
+				    const note = await DBService.get(pin);
+				    
+				    if (note) {
+				        // Route A: Exact file exists. Open it normally.
+				        this.openFile(pin);
+				    } else {
+				        // Route B: It's a directory (or missing file). Inject into search bar.
+				        DOM.searchBar.value = pin;
+				        UI.renderFileList(pin, false);
+				    }
+				},
+
 				toggleViewMode() {
 					if (!AppState.currentFilename || Utils.isImageFile(AppState.currentFilename)) return;
 
@@ -749,6 +813,8 @@
 
 			window.onload = () => {
 				initDOM();
+
+				UI.renderPins();
 
 				// 1. Deep Link Boot Sequence
 				const hash = window.location.hash.substring(1);
