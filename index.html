@@ -84,6 +84,11 @@
 				outline: none; background: transparent; transition: opacity 0.2s;
 			}
 			#note-content:disabled { cursor: not-allowed; }
+			#note-viewer {
+				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px;
+				overflow-y: auto; display: none; background: white;
+				justify-content: center; align-items: flex-start;
+			}
 		</style>
 	</head>
 	<body>
@@ -111,6 +116,7 @@
 				</div>
 			</div>
 			<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
+			<div id="note-viewer"></div>
 			<div id="status-bar"></div>
 		</div>
 
@@ -139,6 +145,7 @@
 				DOM.searchBar = document.getElementById('search-bar');
 				DOM.fileList = document.getElementById('file-list');
 				DOM.editor = document.getElementById('note-content');
+				DOM.viewer = document.getElementById('note-viewer');
 				DOM.filenameLabel = document.getElementById('current-filename');
 				DOM.pullBtn = document.getElementById('pull-btn');
 				DOM.pushBtn = document.getElementById('push-btn');
@@ -151,7 +158,8 @@
 			===================================================================== */
 			const Utils = {
 				utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
-				atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0))))
+				atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0)))),
+				isImageFile: (filename) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(filename || '')
 			};
 
 			/* =====================================================================
@@ -239,8 +247,27 @@
 				async getFile(filename) {
 					const { owner, repo } = AppState.config;
 					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
-					const res = await fetch(url, { headers: this.getHeaders(), cache: 'no-store' });
+					const isImage = Utils.isImageFile(filename);
+
+					const headers = this.getHeaders();
+					if (isImage) headers['Accept'] = 'application/vnd.github.raw';
+
+					const res = await fetch(url, { headers, cache: 'no-store' });
 					if (!res.ok) throw new Error('Failed to fetch file. It may have been deleted remotely.');
+
+					if (isImage) {
+						const rawBlob = await res.blob();
+						const ext = filename.split('.').pop().toLowerCase();
+
+						// Browsers are incredibly strict about SVG MIME types.
+						// We must manually stamp the Blob with the correct type.
+						let mimeType = `image/${ext}`;
+						if (ext === 'svg') mimeType = 'image/svg+xml';
+						if (ext === 'jpg') mimeType = 'image/jpeg';
+
+						return new Blob([rawBlob], { type: mimeType });
+					}
+
 					return await res.json();
 				},
 				async putFile(filename, contentBase64, sha) {
@@ -292,6 +319,9 @@
 					AppState.currentFilename = null;
 					DOM.editor.value = '';
 					DOM.editor.disabled = true;
+					DOM.editor.style.display = 'block';
+					DOM.viewer.style.display = 'none';
+					DOM.viewer.innerHTML = '';
 					DOM.filenameLabel.innerText = 'No file selected';
 					DOM.deleteBtn.style.display = 'none';
 					DOM.pullBtn.style.display = 'none';
@@ -300,14 +330,36 @@
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
-					DOM.editor.disabled = false;
-					DOM.editor.style.opacity = '1';
-					DOM.editor.value = content || '';
 					DOM.filenameLabel.innerText = filename;
-					DOM.deleteBtn.style.display = 'block';
-					DOM.pullBtn.style.display = 'block';
-					DOM.pushBtn.style.display = 'block';
 					DOM.statusBar.style.display = 'none';
+					DOM.pullBtn.style.display = 'block';
+
+					if (Utils.isImageFile(filename)) {
+						// --- IMAGE MODE ---
+						DOM.editor.style.display = 'none';
+						DOM.editor.value = ''; // Free memory
+						DOM.pushBtn.style.display = 'none';    // Block pushing
+						DOM.deleteBtn.style.display = 'none';  // Block deleting
+						DOM.viewer.style.display = 'flex';
+
+						if (content instanceof Blob) {
+							const objectUrl = URL.createObjectURL(content);
+							DOM.viewer.innerHTML = `<img src="${objectUrl}" style="max-width: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">`;
+							DOM.viewer.querySelector('img').onload = () => URL.revokeObjectURL(objectUrl);
+						} else {
+							DOM.viewer.innerHTML = `<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;"><i>Image placeholder. Click "⬇️ Pull File" to download.</i></div>`;
+						}
+					} else {
+						// --- TEXT MODE ---
+						DOM.viewer.style.display = 'none';
+						DOM.viewer.innerHTML = '';
+						DOM.editor.style.display = 'block';
+						DOM.editor.disabled = false;
+						DOM.editor.style.opacity = '1';
+						DOM.editor.value = content || '';
+						DOM.pushBtn.style.display = 'block';
+						DOM.deleteBtn.style.display = 'block';
+					}
 				},
 				async renderFileList(searchTerm = '', deepSearch = false) {
 					let notes = await DBService.getAll();
@@ -448,7 +500,14 @@
 					try {
 						UI.showStatus('Refreshing file list from GitHub...');
 						const treeData = await GitHubService.getTree();
-						const files = treeData.tree.filter(item => item.type === 'blob');
+
+						// Update filter to allow images under 5MB
+						const files = treeData.tree.filter(item => {
+							if (item.type !== 'blob') return false;
+							const isTextLike = /\.(txt|md|csv|json|xml|html|css|js|ts|py|yml|yaml|ini|env|sh|c|cpp|h)$/i.test(item.path);
+							const isImage = Utils.isImageFile(item.path);
+							return (isTextLike || isImage) && item.size < 5000000;
+						});
 
 						for (const file of files) {
 							let localNote = await DBService.get(file.path);
@@ -473,42 +532,50 @@
 
 					try {
 						UI.showStatus(`Pulling ${filename}...`);
-						const fileData = await GitHubService.getFile(filename);
-						const remoteContent = Utils.atou(fileData.content);
+						const isImage = Utils.isImageFile(filename);
+						const fileResponse = await GitHubService.getFile(filename);
 						const localNote = await DBService.get(filename);
 
-						if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
-							const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
-							if (choice === null) return UI.showStatus("Pull cancelled.");
-							
-							if (choice === "w") {
+						if (isImage) {
+							// Binary Handling
+							localNote.content = fileResponse; // fileResponse is a raw Blob here
+							localNote.is_dirty = false;
+							localNote.last_synced_sha = localNote.remote_sha; // Use the known SHA from the tree
+						} else {
+							// Text Handling
+							const remoteContent = Utils.atou(fileResponse.content);
+							if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
+								const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
+								if (choice === null) return UI.showStatus("Pull cancelled.");
+
+								if (choice === "w") {
+									localNote.content = remoteContent;
+									localNote.is_dirty = false;
+								} else {
+									UI.showStatus(`Injecting merge markers...`, true);
+									if (typeof Diff !== 'undefined') {
+										let merged = "";
+										Diff.diffLines(remoteContent, localNote.content).forEach(p => {
+											if (p.added) merged += `<<<<<<< LOCAL\n${p.value}=======\n`;
+											else if (p.removed) merged += `${p.value}>>>>>>> REMOTE\n`;
+											else merged += p.value;
+										});
+										localNote.content = merged;
+									} else {
+										localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
+									}
+									localNote.is_dirty = true; 
+								}
+							} else {
 								localNote.content = remoteContent;
 								localNote.is_dirty = false;
-							} else {
-								UI.showStatus(`Injecting merge markers...`, true);
-								if (typeof Diff !== 'undefined') {
-									let merged = "";
-									Diff.diffLines(remoteContent, localNote.content).forEach(p => {
-										if (p.added) merged += `<<<<<<< LOCAL\n${p.value}=======\n`;
-										else if (p.removed) merged += `${p.value}>>>>>>> REMOTE\n`;
-										else merged += p.value;
-									});
-									localNote.content = merged;
-								} else {
-									localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
-								}
-								localNote.is_dirty = true; 
 							}
-						} else {
-							localNote.content = remoteContent;
-							localNote.is_dirty = false;
+							localNote.last_synced_sha = fileResponse.sha;
+							localNote.remote_sha = fileResponse.sha;
 						}
 
-						localNote.last_synced_sha = fileData.sha;
-						localNote.remote_sha = fileData.sha;
 						await DBService.put(localNote);
-
-						DOM.editor.value = localNote.content;
+						UI.setEditorActive(filename, localNote.content);
 						UI.showStatus(`Successfully pulled ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -516,7 +583,6 @@
 						UI.showStatus(`Pull failed: ${err.message}`, true);
 					}
 				},
-
 				async pushFile() {
 					const filename = AppState.currentFilename;
 					if (!filename) return;
