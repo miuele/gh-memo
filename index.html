@@ -111,6 +111,10 @@
 				box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: pointer; z-index: 100;
 			}
 			#view-toggle:hover { background: #005bb5; }
+			@media (max-width: 768px) {
+			    #sidebar { width: 100%; position: absolute; height: 100%; z-index: 50; }
+			    #sidebar.collapsed { width: 0; }
+			}
 		</style>
 	</head>
 	<body>
@@ -472,12 +476,27 @@
 					UI.showStatus('Configuration saved.', false);
 				},
 
-				async openFile(filename) {
+				async openFile(filename, skipHistory = false) {
 					const note = await DBService.get(filename);
 					if (!note) return;
 					
+					// Push to the browser's History API
+					if (!skipHistory) {
+						history.pushState(null, null, '#' + encodeURIComponent(filename));
+					}
+
+					// If we are on a mobile device (screen width < 768px), auto-collapse the sidebar
+					if (window.innerWidth < 768) {
+					    DOM.sidebar.classList.add('collapsed');
+					}
+
 					UI.setEditorActive(filename, note.content);
 					UI.renderFileList(DOM.searchBar.value, false);
+					
+					// If the user is currently in View Mode, instantly render the new file
+					if (AppState.isViewMode) {
+						this.renderPreview();
+					}
 				},
 
 				async createFile() {
@@ -514,6 +533,7 @@
 					try {
 						await DBService.clear();
 						UI.resetEditor();
+						history.replaceState(null, null, window.location.pathname);
 						UI.renderFileList();
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.showStatus('Local database completely cleared.');
@@ -538,6 +558,7 @@
 						}
 						await DBService.delete(filename);
 						UI.resetEditor();
+						history.replaceState(null, null, window.location.pathname);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList();
 						UI.showStatus('File deleted successfully.');
@@ -728,16 +749,45 @@
 
 			window.onload = () => {
 				initDOM();
-				UI.renderFileList();
 
-				// Wire up search bar events locally
+				// 1. Deep Link Boot Sequence
+				const hash = window.location.hash.substring(1);
+				if (hash) {
+					// Boot directly into the requested file
+					Actions.openFile(decodeURIComponent(hash), true);
+				} else {
+					// Boot into the empty state
+					UI.resetEditor();
+					UI.renderFileList();
+				}
+
+				// 2. Wire up search bar events locally
 				DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
 				DOM.searchBar.addEventListener('keydown', (e) => {
 					if (e.key === 'Enter') UI.renderFileList(DOM.searchBar.value, true);
 				});
 
-				// Editor typing event
+				// 3. Editor typing event
 				DOM.editor.addEventListener('input', () => Actions.handleTyping());
+
+				DOM.editor.addEventListener('keydown', function(e) {
+				    if (e.key === 'Tab') {
+				        e.preventDefault(); // Stop focus from moving
+				        
+				        const start = this.selectionStart;
+				        const end = this.selectionEnd;
+				        const indent = "    "; // 4 spaces (or use "\t" for a real tab)
+				        
+				        // Inject the indent
+				        this.value = this.value.substring(0, start) + indent + this.value.substring(end);
+				        
+				        // Move the cursor to right after the injected indent
+				        this.selectionStart = this.selectionEnd = start + indent.length;
+				        
+				        // Trigger the debounced save manually since 'input' event doesn't fire on script-injected text
+				        Actions.handleTyping();
+				    }
+				});
 
 				DOM.viewer.addEventListener('click', (e) => {
 				    let target = e.target;
@@ -779,6 +829,23 @@
 				    }
 				});
 			};
+
+			window.addEventListener('popstate', () => {
+				// Read the hash from the URL (removing the # symbol)
+				const hash = window.location.hash.substring(1);
+				
+				if (hash) {
+					// The user navigated Back/Forward to a specific file
+					Actions.openFile(decodeURIComponent(hash), true); // true = skip pushing state again
+				} else {
+					// The URL hash is empty. The user navigated Back to the root list.
+					UI.resetEditor();
+					UI.renderFileList(DOM.searchBar.value, false);
+				}
+			});
+
+			window.addEventListener('offline', () => UI.showStatus('📴 You are offline. Changes will save locally.', true));
+			window.addEventListener('online', () => UI.showStatus('📶 You are back online. Safe to Push/Pull.'));
 
 			document.addEventListener('keydown', (e) => {
 				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
