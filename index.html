@@ -4,22 +4,18 @@
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-		<!-- Tell the browser this is a PWA -->
+		<!-- PWA Metadata -->
 		<link rel="manifest" href="manifest.json">
 		<meta name="theme-color" content="#0066cc">
-
-		<!-- Apple/iOS specific tags to force full-screen standalone mode -->
 		<meta name="mobile-web-app-capable" content="yes">
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 		<meta name="apple-mobile-web-app-title" content="Notes">
 		<link rel="apple-touch-icon" href="icon.png">
 
-		<!-- Register the Service Worker -->
 		<script>
 			if ('serviceWorker' in navigator) {
 				window.addEventListener('load', () => {
 					navigator.serviceWorker.register('sw.js')
-						.then(reg => console.log('Service Worker registered', reg))
 						.catch(err => console.error('Service Worker failed', err));
 				});
 			}
@@ -27,686 +23,574 @@
 
 		<title>Local-First Notes</title>
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
+		
 		<style>
-:root {
-	--bg: #f9f9f9; --sidebar-bg: #ececec; --text: #333; 
-	--border: #ccc; --accent: #0066cc; --danger: #cc0000;
-}
-		body {
-			margin: 0; display: flex; height: 100vh; font-family: system-ui, -apple-system, sans-serif;
-			background: var(--bg); color: var(--text); overflow: hidden;
-		}
-
-		/* Sidebar transition and hidden state */
-		#sidebar {
-			width: 300px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
-			display: flex; flex-direction: column;
-			transition: width 0.3s ease;
-			overflow-x: hidden;
-			white-space: nowrap;
-			flex-shrink: 0;
-		}
-		#sidebar.collapsed {
-			width: 0;
-			border-right: none;
-		}
-
-		/* The vertical toggle strip */
-		#toggle-sidebar {
-			width: 6px;
-			cursor: col-resize;
-			background: transparent;
-			border: none;
-			transition: background 0.2s;
-			height: 100%;
-			z-index: 10;
-			position: relative;
-			margin: 0;
-			padding: 0;
-			flex-shrink: 0;
-		}
-		#toggle-sidebar:hover {
-			background: rgba(0, 102, 204, 0.2);
-			border-right: 2px solid var(--accent);
-		}
-
-		.sidebar-header {
-			padding: 10px; border-bottom: 1px solid var(--border);
-			display: flex; flex-wrap: wrap; gap: 5px;
-		}
-		button {
-			padding: 6px 12px; cursor: pointer; border: 1px solid var(--border);
-			background: white; border-radius: 4px; font-size: 13px;
-		}
-		button:hover { background: #f0f0f0; }
-		button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-		#search-bar {
-			width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;
-			border: 1px solid var(--border); border-radius: 4px;
-		}
-		#file-list {
-			flex-grow: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0;
-		}
-		.file-item {
-			padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer;
-			display: flex; justify-content: space-between; align-items: center; font-size: 14px;
-		}
-		.file-item:hover { background: #e0e0e0; }
-		.file-item.active { background: #d0e0f0; border-left: 3px solid var(--accent); }
-		.file-item .match-count { font-size: 11px; color: #666; }
-
-		#main {
-			flex-grow: 1; display: flex; flex-direction: column; background: white; min-width: 0;
-		}
-		#status-bar {
-			padding: 10px; background: #fff3cd; color: #856404; border-bottom: 1px solid #ffeeba;
-			font-size: 14px; display: none; align-items: center; justify-content: space-between;
-		}
-		#status-bar.error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
-
-		#editor-header {
-			padding: 0 20px; border-bottom: 1px solid var(--border); font-weight: bold;
-			display: flex; justify-content: space-between; align-items: center;
-			min-height: 50px; flex-shrink: 0;
-		}
-		#current-filename {
-			line-height: 1; display: inline-flex; align-items: center;
-		}
-
-		#note-content {
-			flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px;
-			border: none; resize: none; font-family: monospace; font-size: 15px;
-			line-height: 1.5; outline: none; background: transparent; transition: opacity 0.2s;
-		}
-		#note-content:disabled { cursor: not-allowed; }
+			/* CSS remains completely unchanged */
+			:root {
+				--bg: #f9f9f9; --sidebar-bg: #ececec; --text: #333; 
+				--border: #ccc; --accent: #0066cc; --danger: #cc0000;
+			}
+			body {
+				margin: 0; display: flex; height: 100vh; font-family: system-ui, -apple-system, sans-serif;
+				background: var(--bg); color: var(--text); overflow: hidden;
+			}
+			#sidebar {
+				width: 300px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
+				display: flex; flex-direction: column; transition: width 0.3s ease;
+				overflow-x: hidden; white-space: nowrap; flex-shrink: 0;
+			}
+			#sidebar.collapsed { width: 0; border-right: none; }
+			#toggle-sidebar {
+				width: 6px; cursor: col-resize; background: transparent; border: none;
+				transition: background 0.2s; height: 100%; z-index: 10; position: relative;
+				margin: 0; padding: 0; flex-shrink: 0;
+			}
+			#toggle-sidebar:hover { background: rgba(0, 102, 204, 0.2); border-right: 2px solid var(--accent); }
+			.sidebar-header {
+				padding: 10px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 5px;
+			}
+			button {
+				padding: 6px 12px; cursor: pointer; border: 1px solid var(--border);
+				background: white; border-radius: 4px; font-size: 13px;
+			}
+			button:hover { background: #f0f0f0; }
+			button:disabled { opacity: 0.5; cursor: not-allowed; }
+			#search-bar {
+				width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;
+				border: 1px solid var(--border); border-radius: 4px;
+			}
+			#file-list { flex-grow: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0; }
+			.file-item {
+				padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer;
+				display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+			}
+			.file-item:hover { background: #e0e0e0; }
+			.file-item.active { background: #d0e0f0; border-left: 3px solid var(--accent); }
+			.file-item .match-count { font-size: 11px; color: #666; }
+			#main { flex-grow: 1; display: flex; flex-direction: column; background: white; min-width: 0; }
+			#status-bar {
+				padding: 10px; background: #fff3cd; color: #856404; border-bottom: 1px solid #ffeeba;
+				font-size: 14px; display: none; align-items: center; justify-content: space-between;
+			}
+			#status-bar.error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+			#editor-header {
+				padding: 0 20px; border-bottom: 1px solid var(--border); font-weight: bold;
+				display: flex; justify-content: space-between; align-items: center; min-height: 50px; flex-shrink: 0;
+			}
+			#current-filename { line-height: 1; display: inline-flex; align-items: center; }
+			#note-content {
+				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px; border: none;
+				resize: none; font-family: monospace; font-size: 15px; line-height: 1.5;
+				outline: none; background: transparent; transition: opacity 0.2s;
+			}
+			#note-content:disabled { cursor: not-allowed; }
 		</style>
 	</head>
 	<body>
 
 		<div id="sidebar">
 			<div class="sidebar-header">
-				<button onclick="createFile()">+ New</button>
-				<button onclick="refreshTree()">🔄 Refresh List</button>
-				<button onclick="configureGitHub()">⚙️ Setup</button>
-				<button onclick="clearLocalDB()" style="color: var(--danger);">🗑️ Clear DB</button>
-				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)" oninput="handleSearchInput()" onkeydown="handleSearchEnter(event)">
+				<button onclick="Actions.createFile()">+ New</button>
+				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
+				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
+				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
+				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
 			</div>
 			<ul id="file-list"></ul>
 		</div>
 
-		<!-- The interactive sidebar divider -->
-		<div id="toggle-sidebar" onclick="toggleSidebar()" title="Toggle Sidebar"></div>
+		<div id="toggle-sidebar" onclick="UI.toggleSidebar()" title="Toggle Sidebar"></div>
 
 		<div id="main">
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
-					<button id="pull-btn" onclick="pullFromGitHub()" style="display:none;">⬇️ Pull File</button>
-					<button id="push-btn" onclick="pushToGitHub()" style="display:none;">⬆️ Push File</button>
-					<button id="delete-btn" onclick="deleteFile()" style="display:none; color: var(--danger);">Delete</button>
+					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️ Pull File</button>
+					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️ Push File</button>
+					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
 				</div>
 			</div>
-			<textarea id="note-content" oninput="handleTyping()" disabled placeholder="Select or create a file to start typing..."></textarea>
+			<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
 			<div id="status-bar"></div>
 		</div>
 
 		<script>
 			/* =====================================================================
-			1. CONFIGURATION & STATE
-		===================================================================== */
-			let GITHUB_TOKEN = localStorage.getItem('gh_token') || '';
-			let GITHUB_OWNER = localStorage.getItem('gh_owner') || '';
-			let GITHUB_REPO = localStorage.getItem('gh_repo') || '';
-			let GITHUB_BRANCH = localStorage.getItem('gh_branch') || 'main';
-
-			let currentFilename = null;
-			const dbName = 'NotesDB';
-			const storeName = 'notes';
-
-			const utoa = (text) => {
-				const bytes = new TextEncoder().encode(text);
-				let binString = '';
-				for (let i = 0; i < bytes.byteLength; i++) {
-					binString += String.fromCharCode(bytes[i]);
-				}
-				return btoa(binString);
-			};
-
-			const atou = (b64) => {
-				const cleanB64 = b64.replace(/[\r\n]+/g, '');
-				const binString = atob(cleanB64);
-				const bytes = new Uint8Array(binString.length);
-				for (let i = 0; i < binString.length; i++) {
-					bytes[i] = binString.charCodeAt(i);
-				}
-				return new TextDecoder().decode(bytes);
-			};
-
-			function configureGitHub() {
-				GITHUB_TOKEN = prompt('GitHub Personal Access Token:', GITHUB_TOKEN) || GITHUB_TOKEN;
-				GITHUB_OWNER = prompt('GitHub Username:', GITHUB_OWNER) || GITHUB_OWNER;
-				GITHUB_REPO = prompt('GitHub Repository Name:', GITHUB_REPO) || GITHUB_REPO;
-				GITHUB_BRANCH = prompt('GitHub Branch (e.g., main or master):', GITHUB_BRANCH) || GITHUB_BRANCH;
-
-				localStorage.setItem('gh_token', GITHUB_TOKEN);
-				localStorage.setItem('gh_owner', GITHUB_OWNER);
-				localStorage.setItem('gh_repo', GITHUB_REPO);
-				localStorage.setItem('gh_branch', GITHUB_BRANCH);
-				showStatus('Configuration saved.', false);
-			}
-
-			/* =====================================================================
-		   2. INDEXED DB WRAPPER
-		===================================================================== */
-			function initDB() {
-				return new Promise((resolve, reject) => {
-					const request = indexedDB.open(dbName, 1);
-					request.onupgradeneeded = (e) => {
-						const db = e.target.result;
-						if (!db.objectStoreNames.contains(storeName)) {
-							db.createObjectStore(storeName, { keyPath: 'filename' });
-						}
-					};
-					request.onsuccess = () => resolve(request.result);
-					request.onerror = () => reject(request.error);
-				});
-			}
-
-			async function dbPut(note) {
-				const db = await initDB();
-				return new Promise((resolve) => {
-					const tx = db.transaction(storeName, 'readwrite');
-					tx.objectStore(storeName).put(note);
-					tx.oncomplete = () => resolve();
-				});
-			}
-
-			async function dbGet(filename) {
-				const db = await initDB();
-				return new Promise((resolve) => {
-					const tx = db.transaction(storeName, 'readonly');
-					const request = tx.objectStore(storeName).get(filename);
-					request.onsuccess = () => resolve(request.result);
-				});
-			}
-
-			async function dbGetAll() {
-				const db = await initDB();
-				return new Promise((resolve) => {
-					const tx = db.transaction(storeName, 'readonly');
-					const request = tx.objectStore(storeName).getAll();
-					request.onsuccess = () => resolve(request.result);
-				});
-			}
-
-			async function dbDelete(filename) {
-				const db = await initDB();
-				return new Promise((resolve) => {
-					const tx = db.transaction(storeName, 'readwrite');
-					tx.objectStore(storeName).delete(filename);
-					tx.oncomplete = () => resolve();
-				});
-			}
-
-			async function clearLocalDB() {
-				if (!confirm('WARNING: This will permanently delete ALL local notes, including un-pushed changes. Are you sure you want to clear the database?')) return;
-
-				const db = await initDB();
-				return new Promise((resolve, reject) => {
-					const tx = db.transaction(storeName, 'readwrite');
-					tx.objectStore(storeName).clear();
-					tx.oncomplete = () => {
-						currentFilename = null;
-						document.getElementById('note-content').value = '';
-						document.getElementById('note-content').disabled = true;
-						document.getElementById('current-filename').innerText = 'No file selected';
-
-						document.getElementById('delete-btn').style.display = 'none';
-						document.getElementById('pull-btn').style.display = 'none';
-						document.getElementById('push-btn').style.display = 'none';
-
-						loadFileList();
-						syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-						showStatus('Local database completely cleared.');
-						resolve();
-					};
-					tx.onerror = () => {
-						showStatus('Failed to clear local database.', true);
-						reject(tx.error);
-					};
-				});
-			}
-
-			/* =====================================================================
-		   3. MULTI-TAB SYNCHRONIZATION
-		===================================================================== */
-			const syncChannel = new BroadcastChannel('github_notes_sync');
-
-			syncChannel.onmessage = (event) => {
-				if (event.data.type === 'SIDEBAR_REFRESH') {
-					loadFileList();
-				}
-
-				if (event.data.type === 'LOCAL_EDIT') {
-					if (currentFilename === event.data.filename) {
-						const textArea = document.getElementById('note-content');
-						if (!textArea.disabled) {
-							textArea.disabled = true;
-							textArea.style.opacity = '0.7';
-
-							document.getElementById('pull-btn').disabled = true;
-							document.getElementById('push-btn').disabled = true;
-
-							showStatus(`⚠️ Edited in another tab. <button onclick="openFile('${currentFilename}')">Reload</button>`, true);
-						}
-					}
-				}
+			   1. CORE STATE & CONFIGURATION
+			===================================================================== */
+			const AppState = {
+				config: {
+					token: localStorage.getItem('gh_token') || '',
+					owner: localStorage.getItem('gh_owner') || '',
+					repo: localStorage.getItem('gh_repo') || '',
+					branch: localStorage.getItem('gh_branch') || 'main'
+				},
+				currentFilename: null,
+				typingTimer: null,
+				syncChannel: new BroadcastChannel('github_notes_sync')
 			};
 
 			/* =====================================================================
-		   4. UI & EDITOR LOGIC
-		===================================================================== */
-			function toggleSidebar() {
-				const sidebar = document.getElementById('sidebar');
-				sidebar.classList.toggle('collapsed');
-			}
-
-			function showStatus(htmlMsg, isError = false) {
-				const bar = document.getElementById('status-bar');
-				bar.innerHTML = htmlMsg;
-				bar.style.display = 'flex';
-				bar.className = isError ? 'error' : '';
-				if (!isError) setTimeout(() => bar.style.display = 'none', 4000);
-			}
-
-			async function loadFileList(searchTerm = '', deepSearch = false) {
-				let notes = await dbGetAll();
-				const listEl = document.getElementById('file-list');
-				listEl.innerHTML = '';
-
-				const term = searchTerm.toLowerCase();
-
-				if (term) {
-					if (deepSearch) {
-						notes.forEach(note => {
-							const content = (note.content || '').toLowerCase();
-							const matches = content.split(term).length - 1;
-							note.matchCount = matches;
-						});
-						notes = notes.filter(n => n.matchCount > 0 || n.filename.toLowerCase().includes(term));
-						notes.sort((a, b) => (b.matchCount || 0) - (a.matchCount || 0));
-					} else {
-						notes = notes.filter(n => n.filename.toLowerCase().includes(term));
-					}
-				} else {
-					notes.sort((a, b) => a.filename.localeCompare(b.filename));
-				}
-
-				notes.forEach(note => {
-					const li = document.createElement('li');
-					li.className = 'file-item' + (note.filename === currentFilename ? ' active' : '');
-					li.onclick = () => openFile(note.filename);
-
-					let icon = '🟢'; 
-					const isDirty = note.is_dirty;
-					const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
-
-					if (isDirty && hasRemoteUpdate) {
-						icon = '🟡⬇️'; // CONFLICT WARNING: Local changes AND a remote update exist
-					} else if (isDirty) {
-						icon = '🟡';   // Only local changes (Safe to Push)
-					} else if (hasRemoteUpdate) {
-						icon = '⬇️';   // Only remote changes (Safe to Pull)
-					}
-
-					let html = `<span>${icon} ${note.filename}</span>`;
-					if (deepSearch && note.matchCount) {
-						html += `<span class="match-count">${note.matchCount} match${note.matchCount > 1 ? 'es' : ''}</span>`;
-					}
-					li.innerHTML = html;
-					listEl.appendChild(li);
-				});
-			}
-
-			async function openFile(filename) {
-				const note = await dbGet(filename);
-				if (!note) return;
-
-				document.getElementById('pull-btn').disabled = false;
-				document.getElementById('push-btn').disabled = false;
-
-				currentFilename = filename;
-				const textArea = document.getElementById('note-content');
-
-				textArea.disabled = false;
-				textArea.style.opacity = '1';
-				textArea.value = note.content || ''; // Handle empty stubs
-
-				document.getElementById('current-filename').innerText = filename;
-				document.getElementById('delete-btn').style.display = 'block';
-				document.getElementById('pull-btn').style.display = 'block';
-				document.getElementById('push-btn').style.display = 'block';
-				document.getElementById('status-bar').style.display = 'none';
-
-				loadFileList(document.getElementById('search-bar').value, false);
-			}
-
-			let typingTimer;
-
-			async function handleTyping() {
-				if (!currentFilename) return;
-
-				// Clear the timer on every keystroke
-				clearTimeout(typingTimer);
-
-				// Wait 500ms after the user STOPS typing before saving to the database
-				typingTimer = setTimeout(async () => {
-					const textArea = document.getElementById('note-content');
-					const note = await dbGet(currentFilename);
-
-					if (note) {
-						note.content = textArea.value;
-						note.is_dirty = true;
-						await dbPut(note);
-
-						// Broadcast the change to the sidebar and other tabs
-						syncChannel.postMessage({ type: 'LOCAL_EDIT', filename: currentFilename });
-						loadFileList(document.getElementById('search-bar').value, false);
-					}
-				}, 500); 
-			}
-
-			async function createFile() {
-				let filename = prompt('Enter filename (e.g., folder/draft.txt):');
-				if (!filename) return;
-				if (!filename.includes('.')) filename += '.txt'; 
-
-				const existing = await dbGet(filename);
-				if (existing) return alert('File already exists locally.');
-
-				await dbPut({
-					filename: filename,
-					content: '',
-					last_synced_sha: null,
-					remote_sha: null,
-					is_dirty: true
-				});
-
-				syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-				openFile(filename);
-			}
-
-			async function deleteFile() {
-				if (!currentFilename) return;
-
-				const note = await dbGet(currentFilename);
-				if (!note) return;
-
-				const confirmMsg = note.last_synced_sha 
-					? `Delete ${currentFilename} from both your local device AND GitHub?`
-					: `Delete ${currentFilename} locally? (It hasn't been pushed to GitHub yet).`;
-
-				if (!confirm(confirmMsg)) return;
-
-				try {
-					if (note.last_synced_sha) {
-						showStatus(`Deleting ${currentFilename} from GitHub...`);
-
-						const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${currentFilename}`;
-						const payload = {
-							message: `Delete note: ${currentFilename}`,
-							sha: note.last_synced_sha,
-							branch: GITHUB_BRANCH
-						};
-
-						const res = await fetch(url, {
-							method: 'DELETE',
-							headers: getAuthHeaders(),
-							body: JSON.stringify(payload)
-						});
-
-						if (!res.ok && res.status !== 404) {
-							const errorData = await res.json();
-							throw new Error(errorData.message || "GitHub deletion failed.");
-						}
-					}
-
-					await dbDelete(currentFilename);
-
-					currentFilename = null;
-					document.getElementById('note-content').value = '';
-					document.getElementById('note-content').disabled = true;
-					document.getElementById('current-filename').innerText = 'No file selected';
-					document.getElementById('delete-btn').style.display = 'none';
-					document.getElementById('pull-btn').style.display = 'none';
-					document.getElementById('push-btn').style.display = 'none';
-
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList();
-					showStatus('File deleted successfully.');
-
-				} catch (err) {
-					showStatus(`Error: ${err.message}`, true);
-					console.error(err);
-				}
+			   2. DOM ELEMENT CACHE (Populated on load)
+			===================================================================== */
+			const DOM = {};
+			function initDOM() {
+				DOM.sidebar = document.getElementById('sidebar');
+				DOM.searchBar = document.getElementById('search-bar');
+				DOM.fileList = document.getElementById('file-list');
+				DOM.editor = document.getElementById('note-content');
+				DOM.filenameLabel = document.getElementById('current-filename');
+				DOM.pullBtn = document.getElementById('pull-btn');
+				DOM.pushBtn = document.getElementById('push-btn');
+				DOM.deleteBtn = document.getElementById('delete-btn');
+				DOM.statusBar = document.getElementById('status-bar');
 			}
 
 			/* =====================================================================
-		   5. SEARCH ENGINE
-		===================================================================== */
-			function handleSearchInput() {
-				const term = document.getElementById('search-bar').value;
-				loadFileList(term, false);
-			}
-
-			function handleSearchEnter(event) {
-				if (event.key === 'Enter') {
-					const term = document.getElementById('search-bar').value;
-					loadFileList(term, true);
-				}
-			}
+			   3. UTILITIES
+			===================================================================== */
+			const Utils = {
+				utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
+				atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0))))
+			};
 
 			/* =====================================================================
-		   6. GITHUB API & MERGE LOGIC
-		===================================================================== */
-			function getAuthHeaders() {
-				if (!GITHUB_TOKEN) throw new Error('GitHub token not configured.');
-				return {
-					'Authorization': `token ${GITHUB_TOKEN}`,
-					'Accept': 'application/vnd.github.v3+json',
-					'Content-Type': 'application/json'
-				};
-			}
-
-			// REFRESH TREE: Gets metadata using Recursive Trees API to support folders
-			async function refreshTree() {
-				try {
-					showStatus('Refreshing file list from GitHub...');
-					const treeUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/${GITHUB_BRANCH}?recursive=1`;
-					const res = await fetch(treeUrl, { headers: getAuthHeaders(), cache: 'no-store' });
-
-					if (!res.ok) throw new Error('Failed to fetch repository tree.');
-
-					const treeData = await res.json();
-					const files = treeData.tree.filter(item => item.type === 'blob');
-
-					for (const file of files) {
-						let localNote = await dbGet(file.path);
-						if (!localNote) {
-							// Discover a brand new file from GitHub. Create a stub.
-							await dbPut({
-								filename: file.path,
-								content: '',
-								last_synced_sha: null,
-								remote_sha: file.sha,
-								is_dirty: false
-							});
-						} else {
-							// Update the remote SHA so the sidebar can show the ⬇️ icon if needed
-							localNote.remote_sha = file.sha;
-							await dbPut(localNote);
-						}
-					}
-
-					showStatus('File list updated.');
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList();
-				} catch (err) {
-					showStatus(`Refresh failed: ${err.message}`, true);
-				}
-			}
-
-			// TARGETED PULL: Acts only on currentFilename, handling Revert/Overwrite natively
-			async function pullFromGitHub() {
-				if (!currentFilename) return;
-
-				try {
-					showStatus(`Pulling ${currentFilename}...`);
-					const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${currentFilename}`;
-					const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
-
-					if (!res.ok) throw new Error('Failed to fetch file. It may have been deleted remotely.');
-
-					const fileData = await res.json();
-					const remoteContent = atou(fileData.content);
-					const localNote = await dbGet(currentFilename);
-
-					if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
-						const msg = `Conflict in ${currentFilename}!\n\nd: Insert Diff markers (Default)\nw: Overwrite local with remote (Revert)`;
-						const choice = prompt(msg, "d");
-
-						if (choice === null) {
-							return showStatus("Pull cancelled.");
-						} else if (choice === "w") {
-							localNote.content = remoteContent;
-							localNote.is_dirty = false;
-						} else {
-							// Standard Diff Injection
-							showStatus(`Injecting merge markers into ${currentFilename}...`, true);
-							if (typeof Diff !== 'undefined') {
-								let mergedText = "";
-								const diffBlocks = Diff.diffLines(remoteContent, localNote.content);
-								diffBlocks.forEach(part => {
-									if (part.added) mergedText += `<<<<<<< LOCAL\n${part.value}=======\n`;
-									else if (part.removed) mergedText += `${part.value}>>>>>>> REMOTE\n`;
-									else mergedText += part.value;
-								});
-								localNote.content = mergedText;
-							} else {
-								localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
+			   4. DATABASE SERVICE (IndexedDB Abstraction)
+			===================================================================== */
+			const DBService = {
+				dbName: 'NotesDB',
+				storeName: 'notes',
+				
+				init() {
+					return new Promise((resolve, reject) => {
+						const request = indexedDB.open(this.dbName, 1);
+						request.onupgradeneeded = (e) => {
+							const db = e.target.result;
+							if (!db.objectStoreNames.contains(this.storeName)) {
+								db.createObjectStore(this.storeName, { keyPath: 'filename' });
 							}
-							// Keep dirty to true because we injected markers that need saving
-							localNote.is_dirty = true; 
-						}
-					} else {
-						// Clean local state, safe to overwrite
-						localNote.content = remoteContent;
-						localNote.is_dirty = false;
-					}
-
-					// Update SHAs
-					localNote.last_synced_sha = fileData.sha;
-					localNote.remote_sha = fileData.sha;
-					await dbPut(localNote);
-
-					document.getElementById('note-content').value = localNote.content;
-					showStatus(`Successfully pulled ${currentFilename}.`);
-
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList();
-
-				} catch (err) {
-					showStatus(`Pull failed: ${err.message}`, true);
+						};
+						request.onsuccess = () => resolve(request.result);
+						request.onerror = () => reject(request.error);
+					});
+				},
+				async put(note) {
+					const db = await this.init();
+					return new Promise((resolve) => {
+						const tx = db.transaction(this.storeName, 'readwrite');
+						tx.objectStore(this.storeName).put(note);
+						tx.oncomplete = () => resolve();
+					});
+				},
+				async get(filename) {
+					const db = await this.init();
+					return new Promise((resolve) => {
+						const tx = db.transaction(this.storeName, 'readonly');
+						const request = tx.objectStore(this.storeName).get(filename);
+						request.onsuccess = () => resolve(request.result);
+					});
+				},
+				async getAll() {
+					const db = await this.init();
+					return new Promise((resolve) => {
+						const tx = db.transaction(this.storeName, 'readonly');
+						const request = tx.objectStore(this.storeName).getAll();
+						request.onsuccess = () => resolve(request.result);
+					});
+				},
+				async delete(filename) {
+					const db = await this.init();
+					return new Promise((resolve) => {
+						const tx = db.transaction(this.storeName, 'readwrite');
+						tx.objectStore(this.storeName).delete(filename);
+						tx.oncomplete = () => resolve();
+					});
+				},
+				async clear() {
+					const db = await this.init();
+					return new Promise((resolve, reject) => {
+						const tx = db.transaction(this.storeName, 'readwrite');
+						tx.objectStore(this.storeName).clear();
+						tx.oncomplete = () => resolve();
+						tx.onerror = () => reject(tx.error);
+					});
 				}
-			}
+			};
 
-			// TARGETED PUSH: Acts only on currentFilename
-			async function pushToGitHub() {
-				if (!currentFilename) return;
-
-				try {
-					const note = await dbGet(currentFilename);
-					if (!note || !note.is_dirty) {
-						return showStatus(`${currentFilename} is already up to date.`);
-					}
-
-					showStatus(`Pushing ${currentFilename}...`);
-					const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${currentFilename}`;
-
-					const payload = {
-						message: `Update ${currentFilename}`,
-						content: utoa(note.content),
-						branch: GITHUB_BRANCH
+			/* =====================================================================
+			   5. GITHUB API SERVICE (Strictly Network Operations)
+			===================================================================== */
+			const GitHubService = {
+				getHeaders() {
+					if (!AppState.config.token) throw new Error('GitHub token not configured.');
+					return {
+						'Authorization': `token ${AppState.config.token}`,
+						'Accept': 'application/vnd.github.v3+json',
+						'Content-Type': 'application/json'
 					};
-					if (note.last_synced_sha) payload.sha = note.last_synced_sha;
+				},
+				async getTree() {
+					const { owner, repo, branch } = AppState.config;
+					const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+					const res = await fetch(url, { headers: this.getHeaders(), cache: 'no-store' });
+					if (!res.ok) throw new Error('Failed to fetch repository tree.');
+					return await res.json();
+				},
+				async getFile(filename) {
+					const { owner, repo } = AppState.config;
+					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const res = await fetch(url, { headers: this.getHeaders(), cache: 'no-store' });
+					if (!res.ok) throw new Error('Failed to fetch file. It may have been deleted remotely.');
+					return await res.json();
+				},
+				async putFile(filename, contentBase64, sha) {
+					const { owner, repo, branch } = AppState.config;
+					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const payload = { message: `Update ${filename}`, content: contentBase64, branch: branch };
+					if (sha) payload.sha = sha;
 
 					const res = await fetch(url, {
 						method: 'PUT',
-						headers: getAuthHeaders(),
+						headers: this.getHeaders(),
 						body: JSON.stringify(payload)
 					});
-
-					if (res.status === 409) {
-						throw new Error(`Remote has newer changes. Please Pull the file first.`);
-					} else if (!res.ok) {
-						throw new Error(`Failed to push file.`);
+					if (res.status === 409) throw new Error(`Remote has newer changes. Please Pull first.`);
+					if (!res.ok) throw new Error(`Failed to push file.`);
+					return await res.json();
+				},
+				async deleteFile(filename, sha) {
+					const { owner, repo, branch } = AppState.config;
+					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const payload = { message: `Delete note: ${filename}`, sha: sha, branch: branch };
+					
+					const res = await fetch(url, {
+						method: 'DELETE',
+						headers: this.getHeaders(),
+						body: JSON.stringify(payload)
+					});
+					if (!res.ok && res.status !== 404) {
+						const errorData = await res.json();
+						throw new Error(errorData.message || "GitHub deletion failed.");
 					}
-
-					const responseData = await res.json();
-
-					note.last_synced_sha = responseData.content.sha;
-					note.remote_sha = responseData.content.sha;
-					note.is_dirty = false;
-					await dbPut(note);
-
-					showStatus(`Successfully pushed ${currentFilename}.`);
-					syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-					loadFileList();
-
-				} catch (err) {
-					showStatus(`Push error: ${err.message}`, true);
 				}
-			}
+			};
+
 			/* =====================================================================
-   7. KEYBOARD SHORTCUTS
-===================================================================== */
-			document.addEventListener('keydown', (e) => {
-				// Push File: Ctrl + S (Windows/Linux) or Cmd + S (Mac)
-				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-					e.preventDefault(); // Prevent the browser's "Save Webpage" dialog
-					if (currentFilename) {
-						pushToGitHub();
+			   6. UI CONTROLLER (Visual Updates)
+			===================================================================== */
+			const UI = {
+				toggleSidebar() {
+					DOM.sidebar.classList.toggle('collapsed');
+				},
+				showStatus(htmlMsg, isError = false) {
+					DOM.statusBar.innerHTML = htmlMsg;
+					DOM.statusBar.style.display = 'flex';
+					DOM.statusBar.className = isError ? 'error' : '';
+					if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
+				},
+				resetEditor() {
+					AppState.currentFilename = null;
+					DOM.editor.value = '';
+					DOM.editor.disabled = true;
+					DOM.filenameLabel.innerText = 'No file selected';
+					DOM.deleteBtn.style.display = 'none';
+					DOM.pullBtn.style.display = 'none';
+					DOM.pushBtn.style.display = 'none';
+					DOM.statusBar.style.display = 'none';
+				},
+				setEditorActive(filename, content) {
+					AppState.currentFilename = filename;
+					DOM.editor.disabled = false;
+					DOM.editor.style.opacity = '1';
+					DOM.editor.value = content || '';
+					DOM.filenameLabel.innerText = filename;
+					DOM.deleteBtn.style.display = 'block';
+					DOM.pullBtn.style.display = 'block';
+					DOM.pushBtn.style.display = 'block';
+					DOM.statusBar.style.display = 'none';
+				},
+				async renderFileList(searchTerm = '', deepSearch = false) {
+					let notes = await DBService.getAll();
+					DOM.fileList.innerHTML = '';
+					const term = searchTerm.toLowerCase();
+
+					if (term) {
+						if (deepSearch) {
+							notes.forEach(note => {
+								const content = (note.content || '').toLowerCase();
+								note.matchCount = content.split(term).length - 1;
+							});
+							notes = notes.filter(n => n.matchCount > 0 || n.filename.toLowerCase().includes(term));
+							notes.sort((a, b) => (b.matchCount || 0) - (a.matchCount || 0));
+						} else {
+							notes = notes.filter(n => n.filename.toLowerCase().includes(term));
+						}
 					} else {
-						showStatus("No file open to push.", true);
+						notes.sort((a, b) => a.filename.localeCompare(b.filename));
+					}
+
+					notes.forEach(note => {
+						const li = document.createElement('li');
+						li.className = 'file-item' + (note.filename === AppState.currentFilename ? ' active' : '');
+						li.onclick = () => Actions.openFile(note.filename);
+
+						let icon = '🟢'; 
+						const isDirty = note.is_dirty;
+						const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
+
+						if (isDirty && hasRemoteUpdate) icon = '🟡⬇️'; 
+						else if (isDirty) icon = '🟡';   
+						else if (hasRemoteUpdate) icon = '⬇️';   
+
+						let html = `<span>${icon} ${note.filename}</span>`;
+						if (deepSearch && note.matchCount) {
+							html += `<span class="match-count">${note.matchCount} match${note.matchCount > 1 ? 'es' : ''}</span>`;
+						}
+						li.innerHTML = html;
+						DOM.fileList.appendChild(li);
+					});
+				}
+			};
+
+			/* =====================================================================
+			   7. ACTIONS (Business Logic & Workflows)
+			===================================================================== */
+			const Actions = {
+				configureGitHub() {
+					const c = AppState.config;
+					c.token = prompt('GitHub Personal Access Token:', c.token) || c.token;
+					c.owner = prompt('GitHub Username:', c.owner) || c.owner;
+					c.repo = prompt('GitHub Repository Name:', c.repo) || c.repo;
+					c.branch = prompt('GitHub Branch:', c.branch) || c.branch;
+
+					localStorage.setItem('gh_token', c.token);
+					localStorage.setItem('gh_owner', c.owner);
+					localStorage.setItem('gh_repo', c.repo);
+					localStorage.setItem('gh_branch', c.branch);
+					UI.showStatus('Configuration saved.', false);
+				},
+
+				async openFile(filename) {
+					const note = await DBService.get(filename);
+					if (!note) return;
+					
+					UI.setEditorActive(filename, note.content);
+					UI.renderFileList(DOM.searchBar.value, false);
+				},
+
+				async createFile() {
+					let filename = prompt('Enter filename (e.g., folder/draft.txt):');
+					if (!filename) return;
+					if (!filename.includes('.')) filename += '.txt'; 
+
+					if (await DBService.get(filename)) return alert('File already exists locally.');
+
+					await DBService.put({ filename, content: '', last_synced_sha: null, remote_sha: null, is_dirty: true });
+					AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+					this.openFile(filename);
+				},
+
+				handleTyping() {
+					if (!AppState.currentFilename) return;
+					clearTimeout(AppState.typingTimer);
+
+					AppState.typingTimer = setTimeout(async () => {
+						const note = await DBService.get(AppState.currentFilename);
+						if (note) {
+							note.content = DOM.editor.value;
+							note.is_dirty = true;
+							await DBService.put(note);
+
+							AppState.syncChannel.postMessage({ type: 'LOCAL_EDIT', filename: AppState.currentFilename });
+							UI.renderFileList(DOM.searchBar.value, false);
+						}
+					}, 500); 
+				},
+
+				async clearDB() {
+					if (!confirm('WARNING: Permanently delete ALL local notes?')) return;
+					try {
+						await DBService.clear();
+						UI.resetEditor();
+						UI.renderFileList();
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.showStatus('Local database completely cleared.');
+					} catch(err) {
+						UI.showStatus('Failed to clear local database.', true);
+					}
+				},
+
+				async deleteFile() {
+					const filename = AppState.currentFilename;
+					if (!filename) return;
+					const note = await DBService.get(filename);
+					if (!note) return;
+
+					const msg = note.last_synced_sha ? `Delete ${filename} from local AND GitHub?` : `Delete ${filename} locally?`;
+					if (!confirm(msg)) return;
+
+					try {
+						if (note.last_synced_sha) {
+							UI.showStatus(`Deleting ${filename} from GitHub...`);
+							await GitHubService.deleteFile(filename, note.last_synced_sha);
+						}
+						await DBService.delete(filename);
+						UI.resetEditor();
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.renderFileList();
+						UI.showStatus('File deleted successfully.');
+					} catch (err) {
+						UI.showStatus(`Error: ${err.message}`, true);
+					}
+				},
+
+				async refreshTree() {
+					try {
+						UI.showStatus('Refreshing file list from GitHub...');
+						const treeData = await GitHubService.getTree();
+						const files = treeData.tree.filter(item => item.type === 'blob');
+
+						for (const file of files) {
+							let localNote = await DBService.get(file.path);
+							if (!localNote) {
+								await DBService.put({ filename: file.path, content: '', last_synced_sha: null, remote_sha: file.sha, is_dirty: false });
+							} else {
+								localNote.remote_sha = file.sha;
+								await DBService.put(localNote);
+							}
+						}
+						UI.showStatus('File list updated.');
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.renderFileList(DOM.searchBar.value, false);
+					} catch (err) {
+						UI.showStatus(`Refresh failed: ${err.message}`, true);
+					}
+				},
+
+				async pullFile() {
+					const filename = AppState.currentFilename;
+					if (!filename) return;
+
+					try {
+						UI.showStatus(`Pulling ${filename}...`);
+						const fileData = await GitHubService.getFile(filename);
+						const remoteContent = Utils.atou(fileData.content);
+						const localNote = await DBService.get(filename);
+
+						if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
+							const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
+							if (choice === null) return UI.showStatus("Pull cancelled.");
+							
+							if (choice === "w") {
+								localNote.content = remoteContent;
+								localNote.is_dirty = false;
+							} else {
+								UI.showStatus(`Injecting merge markers...`, true);
+								if (typeof Diff !== 'undefined') {
+									let merged = "";
+									Diff.diffLines(remoteContent, localNote.content).forEach(p => {
+										if (p.added) merged += `<<<<<<< LOCAL\n${p.value}=======\n`;
+										else if (p.removed) merged += `${p.value}>>>>>>> REMOTE\n`;
+										else merged += p.value;
+									});
+									localNote.content = merged;
+								} else {
+									localNote.content = `<<<<<<< LOCAL\n${localNote.content}\n=======\n${remoteContent}\n>>>>>>> REMOTE`;
+								}
+								localNote.is_dirty = true; 
+							}
+						} else {
+							localNote.content = remoteContent;
+							localNote.is_dirty = false;
+						}
+
+						localNote.last_synced_sha = fileData.sha;
+						localNote.remote_sha = fileData.sha;
+						await DBService.put(localNote);
+
+						DOM.editor.value = localNote.content;
+						UI.showStatus(`Successfully pulled ${filename}.`);
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.renderFileList(DOM.searchBar.value, false);
+					} catch (err) {
+						UI.showStatus(`Pull failed: ${err.message}`, true);
+					}
+				},
+
+				async pushFile() {
+					const filename = AppState.currentFilename;
+					if (!filename) return;
+
+					try {
+						const note = await DBService.get(filename);
+						if (!note || !note.is_dirty) return UI.showStatus(`${filename} is already up to date.`);
+
+						UI.showStatus(`Pushing ${filename}...`);
+						const responseData = await GitHubService.putFile(filename, Utils.utoa(note.content), note.last_synced_sha);
+
+						note.last_synced_sha = responseData.content.sha;
+						note.remote_sha = responseData.content.sha;
+						note.is_dirty = false;
+						await DBService.put(note);
+
+						UI.showStatus(`Successfully pushed ${filename}.`);
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.renderFileList(DOM.searchBar.value, false);
+					} catch (err) {
+						UI.showStatus(`Push error: ${err.message}`, true);
 					}
 				}
+			};
 
-				// Focus Search Bar: Ctrl + K (Windows/Linux) or Cmd + K (Mac)
-				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-					e.preventDefault(); // Prevent the browser's "Print" dialog
-					const searchBar = document.getElementById('search-bar');
-					searchBar.focus();
-					searchBar.select(); // Highlights existing text so you can instantly overwrite it
+			/* =====================================================================
+			   8. EVENT LISTENERS & INITIALIZATION
+			===================================================================== */
+			AppState.syncChannel.onmessage = (event) => {
+				if (event.data.type === 'SIDEBAR_REFRESH') UI.renderFileList();
+				if (event.data.type === 'LOCAL_EDIT' && AppState.currentFilename === event.data.filename) {
+					if (!DOM.editor.disabled) {
+						DOM.editor.disabled = true;
+						DOM.editor.style.opacity = '0.7';
+						DOM.pullBtn.disabled = true;
+						DOM.pushBtn.disabled = true;
+						UI.showStatus(`⚠️ Edited in another tab. <button onclick="Actions.openFile('${AppState.currentFilename}')">Reload</button>`, true);
+					}
 				}
-				// 4. Pull File: Alt + Down Arrow
+			};
+
+			window.onload = () => {
+				initDOM();
+				UI.renderFileList();
+
+				// Wire up search bar events locally
+				DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
+				DOM.searchBar.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') UI.renderFileList(DOM.searchBar.value, true);
+				});
+
+				// Editor typing event
+				DOM.editor.addEventListener('input', () => Actions.handleTyping());
+			};
+
+			document.addEventListener('keydown', (e) => {
+				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+					e.preventDefault();
+					AppState.currentFilename ? Actions.pushFile() : UI.showStatus("No file open to push.", true);
+				}
+				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+					e.preventDefault();
+					DOM.searchBar.focus();
+					DOM.searchBar.select();
+				}
 				if (e.altKey && e.key === 'ArrowDown') {
 					e.preventDefault();
-					if (currentFilename) {
-						pullFromGitHub();
-					} else {
-						showStatus("No file open to pull.", true);
-					}
+					AppState.currentFilename ? Actions.pullFile() : UI.showStatus("No file open to pull.", true);
 				}
-
-				// 5. Refresh Tree: Alt + R
-				// (We use Alt instead of Ctrl to avoid hard-reloading the web browser)
 				if (e.altKey && e.key.toLowerCase() === 'r') {
 					e.preventDefault();
-					refreshTree();
+					Actions.refreshTree();
 				}
 			});
-			window.onload = () => loadFileList();
 		</script>
 	</body>
 </html>
