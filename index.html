@@ -22,8 +22,12 @@
 		</script>
 
 		<title>Local-First Notes</title>
+
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
-		
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
 		<style>
 			/* CSS remains completely unchanged */
 			:root {
@@ -89,6 +93,24 @@
 				overflow-y: auto; display: none; background: white;
 				justify-content: center; align-items: flex-start;
 			}
+			#editor-container { flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+			#note-viewer {
+				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 20px 80px 20px;
+				overflow-y: auto; display: none; background: white; line-height: 1.6;
+			}
+			#note-viewer img { max-width: 100%; border-radius: 6px; }
+			#note-viewer pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+			#note-viewer code { font-family: monospace; font-size: 14px; }
+			#note-viewer a { color: var(--accent); text-decoration: none; cursor: pointer; }
+			#note-viewer a:hover { text-decoration: underline; }
+
+			#view-toggle {
+				position: absolute; bottom: 20px; right: 20px; width: 56px; height: 56px;
+				border-radius: 28px; background: var(--accent); color: white; border: none;
+				font-size: 24px; display: none; align-items: center; justify-content: center;
+				box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: pointer; z-index: 100;
+			}
+			#view-toggle:hover { background: #005bb5; }
 		</style>
 	</head>
 	<body>
@@ -115,7 +137,11 @@
 					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
 				</div>
 			</div>
-			<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
+			<div id="editor-container">
+				<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
+				<div id="note-viewer"></div>
+				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
+			</div>
 			<div id="note-viewer"></div>
 			<div id="status-bar"></div>
 		</div>
@@ -129,7 +155,8 @@
 					token: localStorage.getItem('gh_token') || '',
 					owner: localStorage.getItem('gh_owner') || '',
 					repo: localStorage.getItem('gh_repo') || '',
-					branch: localStorage.getItem('gh_branch') || 'main'
+					branch: localStorage.getItem('gh_branch') || 'main',
+					isViewMode: false,
 				},
 				currentFilename: null,
 				typingTimer: null,
@@ -151,6 +178,7 @@
 				DOM.pushBtn = document.getElementById('push-btn');
 				DOM.deleteBtn = document.getElementById('delete-btn');
 				DOM.statusBar = document.getElementById('status-bar');
+				DOM.viewToggle = document.getElementById('view-toggle');
 			}
 
 			/* =====================================================================
@@ -159,7 +187,21 @@
 			const Utils = {
 				utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
 				atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0)))),
-				isImageFile: (filename) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(filename || '')
+				isImageFile: (filename) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(filename || ''),
+				resolvePath: (basePath, relativePath) => {
+					// Ignore external web links and base64 data URIs
+					if (relativePath.match(/^(http|https|data:|mailto:|#)/i)) return relativePath;
+
+					const stack = basePath.split('/').slice(0, -1); // Get current directory
+					const parts = relativePath.split('/');
+
+					for (const part of parts) {
+						if (part === '.') continue;
+						if (part === '..') stack.pop();
+						else stack.push(part);
+					}
+					return stack.join('/');
+				}
 			};
 
 			/* =====================================================================
@@ -316,6 +358,7 @@
 					if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
 				},
 				resetEditor() {
+					AppState.isViewMode = false;
 					AppState.currentFilename = null;
 					DOM.editor.value = '';
 					DOM.editor.disabled = true;
@@ -327,6 +370,7 @@
 					DOM.pullBtn.style.display = 'none';
 					DOM.pushBtn.style.display = 'none';
 					DOM.statusBar.style.display = 'none';
+					DOM.viewToggle.style.display = 'none';
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
@@ -336,6 +380,7 @@
 
 					if (Utils.isImageFile(filename)) {
 						// --- IMAGE MODE ---
+						DOM.viewToggle.style.display = 'none';
 						DOM.editor.style.display = 'none';
 						DOM.editor.value = ''; // Free memory
 						DOM.pushBtn.style.display = 'none';    // Block pushing
@@ -351,6 +396,7 @@
 						}
 					} else {
 						// --- TEXT MODE ---
+						DOM.viewToggle.style.display = 'flex';
 						DOM.viewer.style.display = 'none';
 						DOM.viewer.innerHTML = '';
 						DOM.editor.style.display = 'block';
@@ -359,6 +405,10 @@
 						DOM.editor.value = content || '';
 						DOM.pushBtn.style.display = 'block';
 						DOM.deleteBtn.style.display = 'block';
+
+						if (AppState.isViewMode) {
+							Actions.renderPreview()
+						}
 					}
 				},
 				async renderFileList(searchTerm = '', deepSearch = false) {
@@ -605,6 +655,58 @@
 					} catch (err) {
 						UI.showStatus(`Push error: ${err.message}`, true);
 					}
+				},
+				toggleViewMode() {
+					if (!AppState.currentFilename || Utils.isImageFile(AppState.currentFilename)) return;
+
+					AppState.isViewMode = !AppState.isViewMode;
+
+					if (AppState.isViewMode) {
+						this.renderPreview();
+						DOM.editor.style.display = 'none';
+						DOM.viewer.style.display = 'block';
+						DOM.viewToggle.innerText = '✏️'; 
+					} else {
+						DOM.viewer.style.display = 'none';
+						DOM.editor.style.display = 'block';
+						DOM.editor.focus();
+						DOM.viewToggle.innerText = '👁️'; 
+					}
+				},
+
+				renderPreview() {
+					const rawText = DOM.editor.value;
+					const ext = AppState.currentFilename.split('.').pop().toLowerCase();
+					const isMarkdown = ext === 'md' || ext === 'markdown';
+
+					// 1. Render HTML
+					if (isMarkdown && typeof marked !== 'undefined') {
+						DOM.viewer.innerHTML = marked.parse(rawText);
+					} else {
+						const escaped = rawText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+						DOM.viewer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+					}
+
+					// 2. Syntax Highlighting
+					if (typeof hljs !== 'undefined') {
+						DOM.viewer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+					}
+
+						// 3. Post-Process Local Images
+					DOM.viewer.querySelectorAll('img').forEach(async (img) => {
+						const src = img.getAttribute('src');
+						if (src && !src.match(/^(http|https|data:)/i)) {
+							const targetPath = Utils.resolvePath(AppState.currentFilename, src);
+							const file = await DBService.get(targetPath);
+
+							if (file && file.content instanceof Blob) {
+								const objectUrl = URL.createObjectURL(file.content);
+								img.src = objectUrl;
+								// Browsers keep object URLs in memory until told otherwise. Clean it up.
+								img.onload = () => URL.revokeObjectURL(objectUrl); 
+							}
+						}
+					});
 				}
 			};
 
@@ -636,6 +738,46 @@
 
 				// Editor typing event
 				DOM.editor.addEventListener('input', () => Actions.handleTyping());
+
+				DOM.viewer.addEventListener('click', (e) => {
+				    let target = e.target;
+				    while (target && target.tagName !== 'A') target = target.parentNode;
+				    
+				    if (target && target.tagName === 'A') {
+				        const href = target.getAttribute('href');
+				        
+				        if (href && !href.match(/^(http|https|mailto:|data:|#)/i)) {
+				            e.preventDefault(); 
+				            
+				            const targetPath = Utils.resolvePath(AppState.currentFilename, href);
+				            
+				            // Clear the search bar so we don't accidentally filter the tree
+				            DOM.searchBar.value = ''; 
+				            
+				            // Check if the file exists in the database
+				            DBService.get(targetPath).then(note => {
+				                if (note) {
+				                    // File exists, open it naturally
+				                    Actions.openFile(targetPath);
+				                } else {
+				                    // File does not exist. Prompt to create it!
+				                    if (confirm(`The file "${targetPath}" does not exist locally. Create it?`)) {
+				                        DBService.put({ 
+				                            filename: targetPath, 
+				                            content: '', 
+				                            last_synced_sha: null, 
+				                            remote_sha: null, 
+				                            is_dirty: true 
+				                        }).then(() => {
+				                            AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+				                            Actions.openFile(targetPath);
+				                        });
+				                    }
+				                }
+				            });
+				        }
+				    }
+				});
 			};
 
 			document.addEventListener('keydown', (e) => {
