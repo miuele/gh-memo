@@ -168,7 +168,7 @@
 			const AppState = {
 renderId: 0,
 				config: {
-					host: localStorage.getItem('gh_host') || 'api.github.com',
+					host: localStorage.getItem('gh_host') || 'https://api.github.com',
 					token: localStorage.getItem('gh_token') || '',
 					owner: localStorage.getItem('gh_owner') || '',
 					repo: localStorage.getItem('gh_repo') || '',
@@ -688,16 +688,31 @@ async handleFileUpload(event) {
 						UI.showStatus(`Refresh failed: ${err.message}`, true);
 					}
 				},
-
 				async pullFile() {
 					const filename = AppState.currentFilename;
 					if (!filename) return;
 
 					try {
+						// 1. Fetch local note state FIRST to see if we even need to pull
+						let localNote = await DBService.get(filename);
+
+						// 2. Check if the file is already up to date with the remote
+						if (localNote && localNote.last_synced_sha && localNote.last_synced_sha === localNote.remote_sha) {
+							if (!confirm(`"${filename}" appears to be up to date. Pull from server anyway?`)) {
+								return UI.showStatus("Pull cancelled.");
+							}
+						}
+
 						UI.showStatus(`Pulling ${filename}...`);
 						const isImage = Utils.isImageFile(filename);
+						
+						// 3. Proceed with the network request
 						const fileResponse = await GitHubService.getFile(filename);
-						const localNote = await DBService.get(filename);
+
+						// Fallback initialization just in case the file wasn't in IndexedDB yet
+						if (!localNote) {
+							localNote = { filename, content: '', last_synced_sha: null, remote_sha: null, is_dirty: false };
+						}
 
 						if (isImage) {
 							// Binary Handling
@@ -707,7 +722,7 @@ async handleFileUpload(event) {
 						} else {
 							// Text Handling
 							const remoteContent = Utils.atou(fileResponse.content);
-							if (localNote && localNote.is_dirty && localNote.content !== remoteContent) {
+							if (localNote.is_dirty && localNote.content !== remoteContent) {
 								const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
 								if (choice === null) return UI.showStatus("Pull cancelled.");
 
