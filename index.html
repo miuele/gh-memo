@@ -493,9 +493,6 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					} else {
 						// --- TEXT MODE ---
 						DOM.viewToggle.style.display = 'flex';
-						DOM.viewer.style.display = 'none';
-						DOM.viewer.innerHTML = '';
-						DOM.editor.style.display = 'block';
 						DOM.editor.disabled = false;
 						DOM.editor.style.opacity = '1';
 						DOM.editor.value = content || '';
@@ -503,7 +500,15 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 						DOM.deleteBtn.style.display = 'block';
 
 						if (AppState.isViewMode) {
-							Actions.renderPreview()
+							Actions.renderPreview();
+							DOM.editor.style.display = 'none';
+							DOM.viewer.style.display = 'block';
+							DOM.viewToggle.innerText = '✏️'; 
+						} else {
+							DOM.viewer.style.display = 'none';
+							DOM.viewer.innerHTML = '';
+							DOM.editor.style.display = 'block';
+							DOM.viewToggle.innerText = '👁️'; 
 						}
 					}
 				},
@@ -734,11 +739,6 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 
 					UI.setEditorActive(filename, note.content);
 					UI.renderFileList(DOM.searchBar.value, false);
-					
-					// If the user is currently in View Mode, instantly render the new file
-					if (AppState.isViewMode) {
-						this.renderPreview();
-					}
 				},
 
 				async createFile() {
@@ -1216,18 +1216,7 @@ if (e.key === 'Enter') {
 								if (note) {
 									Actions.openFile(finalPath);
 								} else {
-									// 5. Ask to create the EXACT file they clicked. No extension guessing.
-									if (confirm(`The file "${targetPath}" does not exist locally. Create it?`)) {
-										await DBService.put({ 
-											filename: targetPath, 
-											content: '', 
-											last_synced_sha: null, 
-											remote_sha: null, 
-											is_dirty: true 
-										});
-										AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-										Actions.openFile(targetPath);
-									}
+									UI.showStatus(`The file "${targetPath}" does not exist locally.`, true);
 								}
 							})();
 						}
