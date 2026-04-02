@@ -59,6 +59,14 @@
 			}
 			button:hover { background: #f0f0f0; }
 			button:disabled { opacity: 0.5; cursor: not-allowed; }
+			button.btn-action {
+				background: #e6f7ff;
+				border: 1px solid var(--accent);
+				color: var(--accent);
+				font-weight: bold;
+				box-shadow: 0 0 5px rgba(0, 102, 204, 0.2);
+			}
+			button.btn-action:hover { background: #d0ebff; }
 			#search-bar {
 				width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;
 				border: 1px solid var(--border); border-radius: 4px;
@@ -123,6 +131,27 @@
 			.pin-tag:hover { background: #005bb5; }
 			.pin-rm { font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1; }
 			.pin-rm:hover { color: white; }
+#settings-panel {
+    flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 40px;
+    overflow-y: auto; display: none; background: white;
+}
+.settings-header { 
+    display: flex; justify-content: space-between; align-items: center; 
+    margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; 
+}
+.profile-card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 20px;
+    background: #fafafa;
+}
+.profile-card.active { border-color: var(--accent); background: #f0f7ff; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+.form-group { display: flex; flex-direction: column; }
+.form-group label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
+.form-group input { 
+    padding: 8px; border: 1px solid var(--border); border-radius: 4px; 
+    font-family: monospace; font-size: 13px;
+}
+@media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
 		</style>
 	</head>
 	<body>
@@ -156,6 +185,7 @@
 			<div id="editor-container">
 				<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
 				<div id="note-viewer"></div>
+<div id="settings-panel"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
 			<div id="status-bar"></div>
@@ -200,6 +230,7 @@ DOM.fileInput = document.getElementById('file-upload');
 				DOM.deleteBtn = document.getElementById('delete-btn');
 				DOM.statusBar = document.getElementById('status-bar');
 				DOM.viewToggle = document.getElementById('view-toggle');
+DOM.settingsPanel = document.getElementById('settings-panel');
 			}
 
 			/* =====================================================================
@@ -418,12 +449,18 @@ DOM.fileInput = document.getElementById('file-upload');
 					DOM.pushBtn.style.display = 'none';
 					DOM.statusBar.style.display = 'none';
 					DOM.viewToggle.style.display = 'none';
+					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
+					DOM.pushBtn.classList.remove('btn-action');
+					DOM.pullBtn.classList.remove('btn-action');
+					DOM.pushBtn.innerText = '⬆️ Push File';
+					DOM.pullBtn.innerText = '⬇️ Pull File';
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
 					DOM.filenameLabel.innerText = filename;
 					DOM.statusBar.style.display = 'none';
 					DOM.pullBtn.style.display = 'block';
+					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 
 					if (Utils.isImageFile(filename)) {
 						// --- IMAGE MODE ---
@@ -510,7 +547,74 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						li.innerHTML = html;
 						DOM.fileList.appendChild(li);
 					});
-				}
+				},
+				renderSettings() {
+					let html = `<div class="settings-header">
+						<h2>⚙️ Profiles & Settings</h2>
+						<button onclick="Actions.createProfile()" style="background: var(--accent); color: white; border: none;">+ New Profile</button>
+					</div>`;
+
+					for (const [id, profile] of Object.entries(AppState.profiles)) {
+						const isActive = id === AppState.activeProfileId;
+						const c = profile.config;
+						html += `
+						<div class="profile-card ${isActive ? 'active' : ''}">
+							<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+								<h3 style="margin: 0;">${profile.name} ${isActive ? ' <span style="color:var(--accent); font-size: 14px;">(Active)</span>' : ''}</h3>
+								<div>
+									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch to this Profile</button>` : ''}
+									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">Delete</button>
+								</div>
+							</div>
+							<div class="form-grid">
+								<div class="form-group">
+									<label>Host URL (GitHub API or Local Server)</label>
+									<input type="text" id="cfg-host-${id}" value="${c.host}" placeholder="https://api.github.com">
+								</div>
+								<div class="form-group">
+									<label>Personal Access Token</label>
+									<input type="password" id="cfg-token-${id}" value="${c.token}" placeholder="ghp_...">
+								</div>
+								<div class="form-group">
+									<label>Owner (Username)</label>
+									<input type="text" id="cfg-owner-${id}" value="${c.owner}">
+								</div>
+								<div class="form-group">
+									<label>Repository Name</label>
+									<input type="text" id="cfg-repo-${id}" value="${c.repo}">
+								</div>
+								<div class="form-group">
+									<label>Branch</label>
+									<input type="text" id="cfg-branch-${id}" value="${c.branch}">
+								</div>
+							</div>
+							<button onclick="Actions.updateProfileConfig('${id}')">💾 Save Configuration</button>
+						</div>`;
+					}
+					DOM.settingsPanel.innerHTML = html;
+				},
+				updateButtonStates(note) {
+					if (!note) return;
+					const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
+					
+					// Push Button State
+					if (note.is_dirty) {
+						DOM.pushBtn.classList.add('btn-action');
+						DOM.pushBtn.innerText = '⬆️ Push (Ready)';
+					} else {
+						DOM.pushBtn.classList.remove('btn-action');
+						DOM.pushBtn.innerText = '⬆️ Push File';
+					}
+
+					// Pull Button State
+					if (hasRemoteUpdate) {
+						DOM.pullBtn.classList.add('btn-action');
+						DOM.pullBtn.innerText = '⬇️ Pull (Update)';
+					} else {
+						DOM.pullBtn.classList.remove('btn-action');
+						DOM.pullBtn.innerText = '⬇️ Pull File';
+					}
+				},
 			};
 
 			/* =====================================================================
@@ -565,15 +669,63 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 				},
 
 				configureGitHub() {
-					const c = AppState.config;
-					c.host = prompt('GitHub Host Name:', c.host) || c.host;
-					c.token = prompt('GitHub Personal Access Token:', c.token) || c.token;
-					c.owner = prompt('GitHub Username:', c.owner) || c.owner;
-					c.repo = prompt('GitHub Repository Name:', c.repo) || c.repo;
-					c.branch = prompt('GitHub Branch:', c.branch) || c.branch;
+					UI.resetEditor();
+					AppState.currentFilename = null;
+					history.replaceState(null, null, window.location.pathname);
+					
+					DOM.filenameLabel.innerText = '⚙️ Settings & Profiles';
+					DOM.editor.style.display = 'none';
+					DOM.settingsPanel.style.display = 'block';
+					UI.renderSettings();
+					
+					if (window.innerWidth < 768) DOM.sidebar.classList.add('collapsed');
+				},
 
-					this.saveProfile(); // <--- Changed
-					UI.showStatus('Configuration saved.', false);
+				// Add these two new functions:
+				updateProfileConfig(id) {
+					if (!AppState.profiles[id]) return;
+					const c = AppState.profiles[id].config;
+					
+					c.host = document.getElementById(`cfg-host-${id}`).value.trim();
+					c.token = document.getElementById(`cfg-token-${id}`).value.trim();
+					c.owner = document.getElementById(`cfg-owner-${id}`).value.trim();
+					c.repo = document.getElementById(`cfg-repo-${id}`).value.trim();
+					c.branch = document.getElementById(`cfg-branch-${id}`).value.trim();
+					
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					
+					// If they updated the currently active profile, update active memory
+					if (id === AppState.activeProfileId) {
+						AppState.config = c;
+					}
+					UI.showStatus(`Saved config for ${AppState.profiles[id].name}`);
+				},
+
+				deleteProfile(id) {
+					if (Object.keys(AppState.profiles).length <= 1) return alert("You cannot delete your only profile.");
+					
+					const profileName = AppState.profiles[id].name;
+					const dbName = AppState.profiles[id].dbName;
+					
+					if (!confirm(`WARNING: Permanently delete profile "${profileName}" AND wipe all its local data?\n\nThis action cannot be undone.`)) return;
+
+					// 1. Purge the isolated database directly from the browser's storage
+					indexedDB.deleteDatabase(dbName);
+
+					// 2. Remove the profile from memory
+					delete AppState.profiles[id];
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+
+					// 3. UI Routing
+					if (AppState.activeProfileId === id) {
+						// Fallback to the first available profile if we deleted the active one
+						const fallbackId = Object.keys(AppState.profiles)[0];
+						this.switchProfile(fallbackId);
+						this.configureGitHub(); // Re-open settings to show the updated list
+					} else {
+						// We deleted a background profile, just re-render the list
+						UI.renderSettings();
+					}
 				},
 
 				async openFile(filename, skipHistory = false) {
@@ -591,6 +743,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					}
 
 					UI.setEditorActive(filename, note.content);
+					UI.updateButtonStates(note);
 					UI.renderFileList(DOM.searchBar.value, false);
 					
 					// If the user is currently in View Mode, instantly render the new file
@@ -663,6 +816,7 @@ async handleFileUpload(event) {
 							note.content = DOM.editor.value;
 							note.is_dirty = true;
 							await DBService.put(note);
+							UI.updateButtonStates(note);
 
 							AppState.syncChannel.postMessage({ type: 'LOCAL_EDIT', filename: AppState.currentFilename });
 							UI.renderFileList(DOM.searchBar.value, false);
@@ -731,6 +885,10 @@ async handleFileUpload(event) {
 								await DBService.put(localNote);
 							}
 						}
+						if (AppState.currentFilename) {
+							const currentNote = await DBService.get(AppState.currentFilename);
+							UI.updateButtonStates(currentNote);
+						}
 						UI.showStatus('File list updated.');
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -744,14 +902,6 @@ async handleFileUpload(event) {
 
 					try {
 						let localNote = await DBService.get(filename);
-
-						/*
-						if (localNote && localNote.last_synced_sha === localNote.remote_sha) {
-						    if (!localNote.is_dirty) {
-								return UI.showStatus(`"${filename}" is already up to date.`);
-						    }
-						}
-						*/
 
 						UI.showStatus(`Pulling ${filename}...`);
 						const isImage = Utils.isImageFile(filename);
@@ -804,6 +954,7 @@ async handleFileUpload(event) {
 
 						await DBService.put(localNote);
 						UI.setEditorActive(filename, localNote.content);
+						UI.updateButtonStates(localNote);
 						UI.showStatus(`Successfully pulled ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -849,6 +1000,7 @@ async pushFile() {
 						note.remote_sha = responseData.content.sha;
 						note.is_dirty = false;
 						await DBService.put(note);
+						UI.updateButtonStates(note);
 
 						UI.showStatus(`Successfully pushed ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
