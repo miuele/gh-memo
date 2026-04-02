@@ -25,6 +25,9 @@
 
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+		<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js"></script>
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
@@ -111,6 +114,11 @@
 			#note-viewer code { font-family: monospace; font-size: 14px; }
 			#note-viewer a { color: var(--accent); text-decoration: none; cursor: pointer; }
 			#note-viewer a:hover { text-decoration: underline; }
+			#note-viewer .katex-display { 
+				overflow-x: auto; 
+				overflow-y: hidden; 
+				padding: 10px 0; 
+			}
 
 			#view-toggle {
 				position: absolute; bottom: 20px; right: 20px; width: 56px; height: 56px;
@@ -452,8 +460,6 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 					DOM.pushBtn.classList.remove('btn-action');
 					DOM.pullBtn.classList.remove('btn-action');
-					DOM.pushBtn.innerText = '⬆️ Push File';
-					DOM.pullBtn.innerText = '⬇️ Pull File';
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
@@ -600,19 +606,15 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					// Push Button State
 					if (note.is_dirty) {
 						DOM.pushBtn.classList.add('btn-action');
-						DOM.pushBtn.innerText = '⬆️ Push (Ready)';
 					} else {
 						DOM.pushBtn.classList.remove('btn-action');
-						DOM.pushBtn.innerText = '⬆️ Push File';
 					}
 
 					// Pull Button State
 					if (hasRemoteUpdate) {
 						DOM.pullBtn.classList.add('btn-action');
-						DOM.pullBtn.innerText = '⬇️ Pull (Update)';
 					} else {
 						DOM.pullBtn.classList.remove('btn-action');
-						DOM.pullBtn.innerText = '⬇️ Pull File';
 					}
 				},
 			};
@@ -1113,6 +1115,13 @@ async pushFile() {
 			};
 
 			window.onload = () => {
+				if (typeof marked !== 'undefined' && typeof window.markedKatex !== 'undefined') {
+					marked.use(window.markedKatex({
+						throwOnError: false, // Prevents a syntax error from crashing the whole render loop
+						output: 'html'       // Renders pure HTML to avoid needing extra font logic
+					}));
+				}
+
 				initDOM();
 
 				// --- MIGRATION SCRIPT ---
