@@ -695,19 +695,13 @@ async handleFileUpload(event) {
 					try {
 						let localNote = await DBService.get(filename);
 
-if (localNote && localNote.last_synced_sha === localNote.remote_sha) {
-    if (!localNote.is_dirty) {
-        // ESCAPE HATCH: It looks up to date, but the user might know something we don't.
-        if (!confirm(`"${filename}" appears to be up to date locally. Force pull from server anyway?`)) {
-            return UI.showStatus("Pull cancelled.");
-        }
-    } else {
-        // They have local edits, but the remote cache hasn't changed.
-        if (!confirm(`You have unpushed local edits. Overwrite them with the server's version?`)) {
-            return UI.showStatus("Pull cancelled.");
-        }
-    }
-}
+						/*
+						if (localNote && localNote.last_synced_sha === localNote.remote_sha) {
+						    if (!localNote.is_dirty) {
+								return UI.showStatus(`"${filename}" is already up to date.`);
+						    }
+						}
+						*/
 
 						UI.showStatus(`Pulling ${filename}...`);
 						const isImage = Utils.isImageFile(filename);
