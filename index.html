@@ -62,14 +62,6 @@
 			}
 			button:hover { background: #f0f0f0; }
 			button:disabled { opacity: 0.5; cursor: not-allowed; }
-			button.btn-action {
-				background: #e6f7ff;
-				border: 1px solid var(--accent);
-				color: var(--accent);
-				font-weight: bold;
-				box-shadow: 0 0 5px rgba(0, 102, 204, 0.2);
-			}
-			button.btn-action:hover { background: #d0ebff; }
 			#search-bar {
 				width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;
 				border: 1px solid var(--border); border-radius: 4px;
@@ -458,8 +450,6 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					DOM.statusBar.style.display = 'none';
 					DOM.viewToggle.style.display = 'none';
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
-					DOM.pushBtn.classList.remove('btn-action');
-					DOM.pullBtn.classList.remove('btn-action');
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
@@ -599,24 +589,6 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					}
 					DOM.settingsPanel.innerHTML = html;
 				},
-				updateButtonStates(note) {
-					if (!note) return;
-					const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
-					
-					// Push Button State
-					if (note.is_dirty) {
-						DOM.pushBtn.classList.add('btn-action');
-					} else {
-						DOM.pushBtn.classList.remove('btn-action');
-					}
-
-					// Pull Button State
-					if (hasRemoteUpdate) {
-						DOM.pullBtn.classList.add('btn-action');
-					} else {
-						DOM.pullBtn.classList.remove('btn-action');
-					}
-				},
 			};
 
 			/* =====================================================================
@@ -745,7 +717,6 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					}
 
 					UI.setEditorActive(filename, note.content);
-					UI.updateButtonStates(note);
 					UI.renderFileList(DOM.searchBar.value, false);
 					
 					// If the user is currently in View Mode, instantly render the new file
@@ -818,7 +789,6 @@ async handleFileUpload(event) {
 							note.content = DOM.editor.value;
 							note.is_dirty = true;
 							await DBService.put(note);
-							UI.updateButtonStates(note);
 
 							AppState.syncChannel.postMessage({ type: 'LOCAL_EDIT', filename: AppState.currentFilename });
 							UI.renderFileList(DOM.searchBar.value, false);
@@ -887,10 +857,6 @@ async handleFileUpload(event) {
 								await DBService.put(localNote);
 							}
 						}
-						if (AppState.currentFilename) {
-							const currentNote = await DBService.get(AppState.currentFilename);
-							UI.updateButtonStates(currentNote);
-						}
 						UI.showStatus('File list updated.');
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -956,7 +922,6 @@ async handleFileUpload(event) {
 
 						await DBService.put(localNote);
 						UI.setEditorActive(filename, localNote.content);
-						UI.updateButtonStates(localNote);
 						UI.showStatus(`Successfully pulled ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -1002,7 +967,6 @@ async pushFile() {
 						note.remote_sha = responseData.content.sha;
 						note.is_dirty = false;
 						await DBService.put(note);
-						UI.updateButtonStates(note);
 
 						UI.showStatus(`Successfully pushed ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
