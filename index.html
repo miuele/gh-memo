@@ -164,6 +164,7 @@
 			   1. CORE STATE & CONFIGURATION
 			===================================================================== */
 			const AppState = {
+renderId: 0,
 				config: {
 					token: localStorage.getItem('gh_token') || '',
 					owner: localStorage.getItem('gh_owner') || '',
@@ -446,16 +447,28 @@
 						}
 					}
 				},
-				async renderFileList(searchTerm = '', deepSearch = false) {
+async renderFileList(searchTerm = '', deepSearch = false) {
+					// 1. Grab a ticket for this specific render request
+					const currentRenderId = ++AppState.renderId;
+					
 					let notes = await DBService.getAll();
+					
+					// 2. If another search started while we were waiting for the DB, abort this one!
+					if (currentRenderId !== AppState.renderId) return;
+
 					DOM.fileList.innerHTML = '';
 					const term = searchTerm.toLowerCase();
 
 					if (term) {
 						if (deepSearch) {
 							notes.forEach(note => {
-								const content = (note.content || '').toLowerCase();
-								note.matchCount = content.split(term).length - 1;
+								// Guard against binary blobs
+								if (typeof note.content === 'string') {
+									const content = note.content.toLowerCase();
+									note.matchCount = content.split(term).length - 1;
+								} else {
+									note.matchCount = 0;
+								}
 							});
 							notes = notes.filter(n => n.matchCount > 0 || n.filename.toLowerCase().includes(term));
 							notes.sort((a, b) => (b.matchCount || 0) - (a.matchCount || 0));
@@ -830,7 +843,10 @@
 				// 2. Wire up search bar events locally
 				DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
 				DOM.searchBar.addEventListener('keydown', (e) => {
-					if (e.key === 'Enter') UI.renderFileList(DOM.searchBar.value, true);
+if (e.key === 'Enter') {
+						e.preventDefault();
+						UI.renderFileList(DOM.searchBar.value, true);
+					}
 				});
 
 				// 3. Editor typing event
