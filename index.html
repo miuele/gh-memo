@@ -1104,27 +1104,6 @@ async pushFile() {
 
 				initDOM();
 
-				// --- MIGRATION SCRIPT ---
-				if (Object.keys(AppState.profiles).length === 0) {
-					// User is upgrading from single-tenant. Wrap existing keys into a default profile.
-					AppState.profiles['default'] = {
-						name: "Default Profile",
-						dbName: "NotesDB", // CRITICAL: This maps back to the old database to preserve data!
-						config: {
-							host: localStorage.getItem('gh_host') || 'https://api.github.com',
-							token: localStorage.getItem('gh_token') || '',
-							owner: localStorage.getItem('gh_owner') || '',
-							repo: localStorage.getItem('gh_repo') || '',
-							branch: localStorage.getItem('gh_branch') || 'main'
-						},
-						pins: JSON.parse(localStorage.getItem('notes_pins') || '[]')
-					};
-					
-					AppState.activeProfileId = 'default';
-					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-					localStorage.setItem('notes_active_profile', 'default');
-				}
-
 				// Hydrate the active context BEFORE attempting to load any files
 				Actions.switchProfile(AppState.activeProfileId);
 
