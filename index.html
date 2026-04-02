@@ -130,10 +130,12 @@
 		<div id="sidebar">
 			<div class="sidebar-header">
 				<button onclick="Actions.createFile()">+ New</button>
+<button onclick="DOM.fileInput.click()">📤 Upload</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
 				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
     <button onclick="Actions.addPin()">📌 Pin</button>
 				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
+<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
 				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
 			</div>
@@ -184,6 +186,7 @@ renderId: 0,
 			const DOM = {};
 			function initDOM() {
 				DOM.sidebar = document.getElementById('sidebar');
+DOM.fileInput = document.getElementById('file-upload');
 				DOM.pinContainer = document.getElementById('pin-container');
 				DOM.searchBar = document.getElementById('search-bar');
 				DOM.fileList = document.getElementById('file-list');
@@ -419,8 +422,8 @@ renderId: 0,
 						DOM.viewToggle.style.display = 'none';
 						DOM.editor.style.display = 'none';
 						DOM.editor.value = ''; // Free memory
-						DOM.pushBtn.style.display = 'none';    // Block pushing
-						DOM.deleteBtn.style.display = 'none';  // Block deleting
+    DOM.pushBtn.style.display = 'block';    
+    DOM.deleteBtn.style.display = 'block';  
 						DOM.viewer.style.display = 'flex';
 
 						if (content instanceof Blob) {
@@ -555,6 +558,48 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					this.openFile(filename);
 				},
 
+// Inside Actions...
+async handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Reset the input so you can upload the same file twice if needed
+    event.target.value = '';
+
+    // Hard limit: 5MB to protect browser memory and GitHub API limits
+    if (file.size > 5 * 1024 * 1024) {
+        return UI.showStatus('File is too large. Limit is 5MB.', true);
+    }
+
+    let filename = prompt('Confirm or rename file path (e.g., images/pic.png):', file.name);
+    if (!filename) return;
+
+    const existing = await DBService.get(filename);
+    if (existing && !confirm(`Overwrite existing local file "${filename}"?`)) return;
+
+    const isImage = Utils.isImageFile(filename);
+    let content;
+
+    if (isImage) {
+        // A File object is a Blob. We ensure it has the correct MIME type.
+        content = new Blob([file], { type: file.type });
+    } else {
+        // Automatically extract raw text for .md, .txt, .csv, etc.
+        content = await file.text();
+    }
+
+    await DBService.put({
+        filename,
+        content,
+        last_synced_sha: existing ? existing.last_synced_sha : null,
+        remote_sha: existing ? existing.remote_sha : null,
+        is_dirty: true // Mark as dirty so the app knows it needs to be pushed
+    });
+
+    UI.showStatus(`Successfully imported ${filename}.`);
+    AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+    this.openFile(filename);
+},
 				handleTyping() {
 					if (!AppState.currentFilename) return;
 					clearTimeout(AppState.typingTimer);
@@ -698,7 +743,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						UI.showStatus(`Pull failed: ${err.message}`, true);
 					}
 				},
-				async pushFile() {
+async pushFile() {
 					const filename = AppState.currentFilename;
 					if (!filename) return;
 
@@ -707,7 +752,30 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						if (!note || !note.is_dirty) return UI.showStatus(`${filename} is already up to date.`);
 
 						UI.showStatus(`Pushing ${filename}...`);
-						const responseData = await GitHubService.putFile(filename, Utils.utoa(note.content), note.last_synced_sha);
+						
+						let base64Content;
+						
+						// THE INESCAPABLE NET: If it is an object (Blob, File, or stripped IDB object), it is binary.
+						if (typeof note.content === 'object' && note.content !== null) {
+							
+							// Force extraction via Response wrapper (bypasses missing prototype methods)
+							const buffer = await new Response(note.content).arrayBuffer();
+							const bytes = new Uint8Array(buffer);
+							
+							// Encode in chunks to prevent memory limits
+							let binary = '';
+							const chunkSize = 8192;
+							for (let i = 0; i < bytes.length; i += chunkSize) {
+								binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+							}
+							base64Content = btoa(binary);
+							
+						} else {
+							// It is strictly text.
+							base64Content = Utils.utoa(String(note.content));
+						}
+
+						const responseData = await GitHubService.putFile(filename, base64Content, note.last_synced_sha);
 
 						note.last_synced_sha = responseData.content.sha;
 						note.remote_sha = responseData.content.sha;
