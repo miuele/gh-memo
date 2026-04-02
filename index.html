@@ -253,6 +253,14 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 						else stack.push(part);
 					}
 					return stack.join('/');
+				},
+				parsePath: (path) => {
+					const lastSlash = path.lastIndexOf('/');
+					const dir = lastSlash === -1 ? '' : path.substring(0, lastSlash + 1);
+					const filename = lastSlash === -1 ? path : path.substring(lastSlash + 1);
+					const lastDot = filename.lastIndexOf('.');
+					const basename = lastDot === -1 ? filename : filename.substring(0, lastDot);
+					return { dir, filename, basename };
 				}
 			};
 
@@ -312,6 +320,14 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 						const tx = db.transaction(this.storeName, 'readwrite');
 						tx.objectStore(this.storeName).delete(filename);
 						tx.oncomplete = () => resolve();
+					});
+				},
+				async getAllKeys() {
+					const db = await this.init();
+					return new Promise((resolve) => {
+						const tx = db.transaction(this.storeName, 'readonly');
+						const request = tx.objectStore(this.storeName).getAllKeys();
+						request.onsuccess = () => resolve(request.result);
 					});
 				},
 				async clear() {
@@ -1155,43 +1171,67 @@ if (e.key === 'Enter') {
 				});
 
 				DOM.viewer.addEventListener('click', (e) => {
-				    let target = e.target;
-				    while (target && target.tagName !== 'A') target = target.parentNode;
-				    
-				    if (target && target.tagName === 'A') {
-				        const href = target.getAttribute('href');
-				        
-				        if (href && !href.match(/^(http|https|mailto:|data:|#)/i)) {
-				            e.preventDefault(); 
-				            
-				            const targetPath = Utils.resolvePath(AppState.currentFilename, href);
-				            
-				            // Clear the search bar so we don't accidentally filter the tree
-				            DOM.searchBar.value = ''; 
-				            
-				            // Check if the file exists in the database
-				            DBService.get(targetPath).then(note => {
-				                if (note) {
-				                    // File exists, open it naturally
-				                    Actions.openFile(targetPath);
-				                } else {
-				                    // File does not exist. Prompt to create it!
-				                    if (confirm(`The file "${targetPath}" does not exist locally. Create it?`)) {
-				                        DBService.put({ 
-				                            filename: targetPath, 
-				                            content: '', 
-				                            last_synced_sha: null, 
-				                            remote_sha: null, 
-				                            is_dirty: true 
-				                        }).then(() => {
-				                            AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-				                            Actions.openFile(targetPath);
-				                        });
-				                    }
-				                }
-				            });
-				        }
-				    }
+					let target = e.target;
+					while (target && target.tagName !== 'A') target = target.parentNode;
+					
+					if (target && target.tagName === 'A') {
+						const href = target.getAttribute('href');
+						
+						if (href && !href.match(/^(http|https|mailto:|data:|#)/i)) {
+							e.preventDefault(); 
+							
+							// mdbook links often include anchors (e.g., chapter.html#section-1)
+							// We must strip the hash before looking up the actual filename
+							const pathWithoutHash = href.split('#')[0];
+							const targetPath = Utils.resolvePath(AppState.currentFilename, pathWithoutHash);
+							
+							// Clear the search bar so we don't accidentally filter the tree
+							DOM.searchBar.value = ''; 
+							
+							(async () => {
+								let finalPath = targetPath;
+								let note = await DBService.get(finalPath);
+
+								if (!note) {
+									// 1. Fetch all known filenames (fast, keys only)
+									const allKeys = await DBService.getAllKeys();
+									
+									// 2. Parse the target path using our utility
+									const target = Utils.parsePath(targetPath);
+
+									// 3. Find files in the SAME directory with the SAME basename
+									const candidates = allKeys.filter(key => {
+										const k = Utils.parsePath(key);
+										return k.dir === target.dir && k.basename === target.basename && key !== targetPath;
+									});
+
+									// 4. Resolve routing IF AND ONLY IF there is exactly one match
+									if (candidates.length === 1) {
+										finalPath = candidates[0];
+										note = await DBService.get(finalPath);
+										UI.showStatus(`Rerouted: ${target.filename} &rarr; ${Utils.parsePath(finalPath).filename}`);
+									}
+								}
+
+								if (note) {
+									Actions.openFile(finalPath);
+								} else {
+									// 5. Ask to create the EXACT file they clicked. No extension guessing.
+									if (confirm(`The file "${targetPath}" does not exist locally. Create it?`)) {
+										await DBService.put({ 
+											filename: targetPath, 
+											content: '', 
+											last_synced_sha: null, 
+											remote_sha: null, 
+											is_dirty: true 
+										});
+										AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+										Actions.openFile(targetPath);
+									}
+								}
+							})();
+						}
+					}
 				});
 			};
 
@@ -1229,6 +1269,52 @@ if (e.key === 'Enter') {
 				if (e.altKey && e.key.toLowerCase() === 'r') {
 					e.preventDefault();
 					Actions.refreshTree();
+				}
+			});
+
+			document.addEventListener('paste', async (e) => {
+				// STRICT GEDIT PHILOSOPHY: Do not intercept pastes inside the text editor.
+				// Only allow pasting when focusing outside the editor (e.g., the sidebar).
+				if (e.target.id === 'note-content' || e.target.tagName === 'INPUT') return;
+
+				const clipboardData = e.clipboardData || window.clipboardData;
+				const items = clipboardData.items;
+				
+				for (let i = 0; i < items.length; i++) {
+					const item = items[i];
+					
+					if (item.type.indexOf('image') !== -1) {
+						e.preventDefault(); 
+						
+						const blob = item.getAsFile();
+						if (!blob) continue;
+
+						const ext = blob.type.split('/')[1] || 'png';
+						let filename = prompt('Upload image directly to repository:', `images/image.${ext}`);
+						
+						if (!filename) {
+							UI.showStatus('Image upload cancelled.');
+							return; 
+						}
+
+						if (!filename.includes('.')) filename += `.${ext}`;
+
+						UI.showStatus(`Saving ${filename}...`);
+
+						await DBService.put({
+							filename: filename,
+							content: blob,
+							last_synced_sha: null,
+							remote_sha: null,
+							is_dirty: true 
+						});
+
+						// Only update the file tree, do not touch the editor
+						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+						UI.showStatus(`Successfully saved ${filename}.`);
+						
+						break; 
+					}
 				}
 			});
 		</script>
