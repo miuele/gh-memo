@@ -166,15 +166,16 @@
 			   1. CORE STATE & CONFIGURATION
 			===================================================================== */
 			const AppState = {
-renderId: 0,
-				config: {
-					host: localStorage.getItem('gh_host') || 'https://api.github.com',
-					token: localStorage.getItem('gh_token') || '',
-					owner: localStorage.getItem('gh_owner') || '',
-					repo: localStorage.getItem('gh_repo') || '',
-					branch: localStorage.getItem('gh_branch') || 'main',
-				},
-				pins: JSON.parse(localStorage.getItem('notes_pins') || '[]'),
+				renderId: 0,
+				// 1. The Master Directory
+				profiles: JSON.parse(localStorage.getItem('notes_profiles') || '{}'),
+				activeProfileId: localStorage.getItem('notes_active_profile') || null,
+				
+				// 2. The Current Context (Hydrated on boot)
+				config: { host: '', token: '', owner: '', repo: '', branch: '' },
+				pins: [],
+				
+				// UI State
 				isViewMode: false,
 				currentFilename: null,
 				typingTimer: null,
@@ -228,8 +229,14 @@ DOM.fileInput = document.getElementById('file-upload');
 			   4. DATABASE SERVICE (IndexedDB Abstraction)
 			===================================================================== */
 			const DBService = {
-				dbName: 'NotesDB',
 				storeName: 'notes',
+				// Dynamically read the database name for the active profile
+				get dbName() {
+					if (!AppState.activeProfileId || !AppState.profiles[AppState.activeProfileId]) {
+						throw new Error("No active profile. Database locked.");
+					}
+					return AppState.profiles[AppState.activeProfileId].dbName;
+				},
 				
 				init() {
 					return new Promise((resolve, reject) => {
@@ -510,6 +517,53 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 			   7. ACTIONS (Business Logic & Workflows)
 			===================================================================== */
 			const Actions = {
+				createProfile(name) {
+					if (!name) name = prompt('Enter profile name (e.g., Personal, Work, Local Server):');
+					if (!name) return;
+					
+					const id = 'profile_' + Date.now();
+					AppState.profiles[id] = {
+						name: name,
+						dbName: 'NotesDB_' + id, // Isolated database namespace
+						config: { host: 'https://api.github.com', token: '', owner: '', repo: '', branch: 'main' },
+						pins: []
+					};
+					
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					this.switchProfile(id);
+					this.configureGitHub(); // Prompt for settings immediately
+				},
+
+				switchProfile(profileId) {
+					if (!AppState.profiles[profileId]) return;
+
+					// 1. Update Master State
+					AppState.activeProfileId = profileId;
+					localStorage.setItem('notes_active_profile', profileId);
+					
+					// 2. Hydrate Context
+					const profile = AppState.profiles[profileId];
+					AppState.config = profile.config;
+					AppState.pins = profile.pins || [];
+
+					// 3. Brutally reset the UI to prevent data bleeding
+					UI.resetEditor();
+					DOM.searchBar.value = '';
+					history.replaceState(null, null, window.location.pathname); 
+					
+					// 4. Boot the new environment
+					UI.renderPins();
+					UI.renderFileList();
+					UI.showStatus(`Switched to profile: ${profile.name}`);
+				},
+
+				saveProfile() {
+					if (!AppState.activeProfileId) return;
+					AppState.profiles[AppState.activeProfileId].config = AppState.config;
+					AppState.profiles[AppState.activeProfileId].pins = AppState.pins;
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+				},
+
 				configureGitHub() {
 					const c = AppState.config;
 					c.host = prompt('GitHub Host Name:', c.host) || c.host;
@@ -518,11 +572,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					c.repo = prompt('GitHub Repository Name:', c.repo) || c.repo;
 					c.branch = prompt('GitHub Branch:', c.branch) || c.branch;
 
-					localStorage.setItem('gh_host', c.host);
-					localStorage.setItem('gh_token', c.token);
-					localStorage.setItem('gh_owner', c.owner);
-					localStorage.setItem('gh_repo', c.repo);
-					localStorage.setItem('gh_branch', c.branch);
+					this.saveProfile(); // <--- Changed
 					UI.showStatus('Configuration saved.', false);
 				},
 
@@ -809,22 +859,22 @@ async pushFile() {
 				},
 				
 				addPin() {
-				    const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
-											AppState.currentFilename || '');
-				    if (!pin) return;
-				    
-				    if (!AppState.pins.includes(pin)) {
-				        AppState.pins.push(pin);
-				        localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
-				        UI.renderPins();
-				    }
+					const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
+						AppState.currentFilename || '');
+					if (!pin) return;
+					
+					if (!AppState.pins.includes(pin)) {
+						AppState.pins.push(pin);
+						this.saveProfile(); // <--- Changed
+						UI.renderPins();
+					}
 				},
 				
 				removePin(pin, event) {
-				    event.stopPropagation(); // Prevent the click from also triggering the pin action
-				    AppState.pins = AppState.pins.filter(p => p !== pin);
-				    localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
-				    UI.renderPins();
+					event.stopPropagation();
+					AppState.pins = AppState.pins.filter(p => p !== pin);
+					this.saveProfile(); // <--- Changed
+					UI.renderPins();
 				},
 				
 				async handlePinClick(pin) {
@@ -913,7 +963,29 @@ async pushFile() {
 			window.onload = () => {
 				initDOM();
 
-				UI.renderPins();
+				// --- MIGRATION SCRIPT ---
+				if (Object.keys(AppState.profiles).length === 0) {
+					// User is upgrading from single-tenant. Wrap existing keys into a default profile.
+					AppState.profiles['default'] = {
+						name: "Default Profile",
+						dbName: "NotesDB", // CRITICAL: This maps back to the old database to preserve data!
+						config: {
+							host: localStorage.getItem('gh_host') || 'https://api.github.com',
+							token: localStorage.getItem('gh_token') || '',
+							owner: localStorage.getItem('gh_owner') || '',
+							repo: localStorage.getItem('gh_repo') || '',
+							branch: localStorage.getItem('gh_branch') || 'main'
+						},
+						pins: JSON.parse(localStorage.getItem('notes_pins') || '[]')
+					};
+					
+					AppState.activeProfileId = 'default';
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					localStorage.setItem('notes_active_profile', 'default');
+				}
+
+				// Hydrate the active context BEFORE attempting to load any files
+				Actions.switchProfile(AppState.activeProfileId);
 
 				// 1. Deep Link Boot Sequence
 				const hash = window.location.hash.substring(1);
