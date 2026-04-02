@@ -168,6 +168,7 @@
 			const AppState = {
 renderId: 0,
 				config: {
+					host: localStorage.getItem('gh_host') || 'api.github.com',
 					token: localStorage.getItem('gh_token') || '',
 					owner: localStorage.getItem('gh_owner') || '',
 					repo: localStorage.getItem('gh_repo') || '',
@@ -299,15 +300,15 @@ DOM.fileInput = document.getElementById('file-upload');
 					};
 				},
 				async getTree() {
-					const { owner, repo, branch } = AppState.config;
-					const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+					const { host, owner, repo, branch } = AppState.config;
+					const url = `${host}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
 					const res = await fetch(url, { headers: this.getHeaders(), cache: 'no-store' });
 					if (!res.ok) throw new Error('Failed to fetch repository tree.');
 					return await res.json();
 				},
 				async getFile(filename) {
-					const { owner, repo } = AppState.config;
-					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const { host, owner, repo } = AppState.config;
+					const url = `${host}/repos/${owner}/${repo}/contents/${filename}`;
 					const isImage = Utils.isImageFile(filename);
 
 					const headers = this.getHeaders();
@@ -332,8 +333,8 @@ DOM.fileInput = document.getElementById('file-upload');
 					return await res.json();
 				},
 				async putFile(filename, contentBase64, sha) {
-					const { owner, repo, branch } = AppState.config;
-					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const { host, owner, repo, branch } = AppState.config;
+					const url = `${host}/repos/${owner}/${repo}/contents/${filename}`;
 					const payload = { message: `Update ${filename}`, content: contentBase64, branch: branch };
 					if (sha) payload.sha = sha;
 
@@ -347,8 +348,8 @@ DOM.fileInput = document.getElementById('file-upload');
 					return await res.json();
 				},
 				async deleteFile(filename, sha) {
-					const { owner, repo, branch } = AppState.config;
-					const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filename}`;
+					const { host, owner, repo, branch } = AppState.config;
+					const url = `${host}/repos/${owner}/${repo}/contents/${filename}`;
 					const payload = { message: `Delete note: ${filename}`, sha: sha, branch: branch };
 					
 					const res = await fetch(url, {
@@ -511,11 +512,13 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 			const Actions = {
 				configureGitHub() {
 					const c = AppState.config;
+					c.host = prompt('GitHub Host Name:', c.host) || c.host;
 					c.token = prompt('GitHub Personal Access Token:', c.token) || c.token;
 					c.owner = prompt('GitHub Username:', c.owner) || c.owner;
 					c.repo = prompt('GitHub Repository Name:', c.repo) || c.repo;
 					c.branch = prompt('GitHub Branch:', c.branch) || c.branch;
 
+					localStorage.setItem('gh_host', c.host);
 					localStorage.setItem('gh_token', c.token);
 					localStorage.setItem('gh_owner', c.owner);
 					localStorage.setItem('gh_repo', c.repo);
