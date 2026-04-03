@@ -424,6 +424,9 @@
 						const errorData = await res.json();
 						throw new Error(errorData.message || "GitHub deletion failed.");
 					}
+				},
+				fileUploadSizeLimit() {
+					return 10 * 1024 * 1024;
 				}
 			};
 
@@ -510,7 +513,7 @@
 							path: i.path_display.substring(1), 
 							sha: i.rev, 
 							type: 'blob',
-							size: i.size // <--- FIX: Size mapped so the 5MB filter doesn't break
+							size: i.size
 						})) 
 					};
 				},
@@ -566,6 +569,9 @@
 					const payload = { path: this.formatPath(filename) };
 					const res = await this.apiFetch(url, { method: 'POST', body: JSON.stringify(payload) });
 					if (!res.ok && res.status !== 404) throw new Error("Dropbox deletion failed.");
+				},
+				fileUploadSizeLimit() {
+					return 200 * 1024 * 1024;
 				}
 			};
 			/* =====================================================================
@@ -578,7 +584,8 @@
 				getTree: () => SyncService.active.getTree(),
 				getFile: (filename) => SyncService.active.getFile(filename),
 				putFile: (filename, content, sha) => SyncService.active.putFile(filename, content, sha),
-				deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha)
+				deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha),
+				fileUploadSizeLimit: () => SyncService.active.fileUploadSizeLimit(),
 			};
 
 			/* =====================================================================
@@ -999,9 +1006,9 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 
 					event.target.value = '';
 
-					// Hard limit: 5MB to protect browser memory and API limits
-					if (file.size > 5 * 1024 * 1024) {
-						return UI.showStatus('File is too large. Limit is 5MB.', true);
+					// Hard limit to protect browser memory and API limits
+					if (file.size > SyncService.fileUploadSizeLimit()) {
+						return UI.showStatus('File is too large.', true);
 					}
 
 					let filename = prompt('Confirm or rename file path (e.g., archive.zip):', file.name);
