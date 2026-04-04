@@ -24,12 +24,6 @@
 		<title>Local-First Notes</title>
 
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-		<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js"></script>
-		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
 		<style>
 			/* CSS remains completely unchanged */
@@ -131,27 +125,27 @@
 			.pin-tag:hover { background: #005bb5; }
 			.pin-rm { font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1; }
 			.pin-rm:hover { color: white; }
-#settings-panel {
-    flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 40px;
-    overflow-y: auto; display: none; background: white;
-}
-.settings-header { 
-    display: flex; justify-content: space-between; align-items: center; 
-    margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; 
-}
-.profile-card {
-    border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 20px;
-    background: #fafafa;
-}
-.profile-card.active { border-color: var(--accent); background: #f0f7ff; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
-.form-group { display: flex; flex-direction: column; }
-.form-group label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
-.form-group input { 
-    padding: 8px; border: 1px solid var(--border); border-radius: 4px; 
-    font-family: monospace; font-size: 13px;
-}
-@media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
+			#settings-panel {
+			    flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 40px;
+			    overflow-y: auto; display: none; background: white;
+			}
+			.settings-header { 
+			    display: flex; justify-content: space-between; align-items: center; 
+			    margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; 
+			}
+			.profile-card {
+			    border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 20px;
+			    background: #fafafa;
+			}
+			.profile-card.active { border-color: var(--accent); background: #f0f7ff; }
+			.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+			.form-group { display: flex; flex-direction: column; }
+			.form-group label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
+			.form-group input { 
+			    padding: 8px; border: 1px solid var(--border); border-radius: 4px; 
+			    font-family: monospace; font-size: 13px;
+			}
+			@media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
 		</style>
 	</head>
 	<body>
@@ -159,12 +153,12 @@
 		<div id="sidebar">
 			<div class="sidebar-header">
 				<button onclick="Actions.createFile()">+ New</button>
-<button onclick="DOM.fileInput.click()">📤 Upload</button>
+				<button onclick="DOM.fileInput.click()">📤 Upload</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
 				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
-    <button onclick="Actions.addPin()">📌 Pin</button>
+    			<button onclick="Actions.addPin()">📌 Pin</button>
 				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
-<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
+				<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
 				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
 			</div>
@@ -185,7 +179,7 @@
 			<div id="editor-container">
 				<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
 				<div id="note-viewer"></div>
-<div id="settings-panel"></div>
+				<div id="settings-panel"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
 			<div id="status-bar"></div>
@@ -209,6 +203,7 @@
 				isViewMode: false,
 				currentFilename: null,
 				typingTimer: null,
+				activePlugin: null,
 				syncChannel: new BroadcastChannel('github_notes_sync')
 			};
 
@@ -268,7 +263,26 @@
 					const lastDot = filename.lastIndexOf('.');
 					const basename = lastDot === -1 ? filename : filename.substring(0, lastDot);
 					return { dir, filename, basename };
-				}
+				},
+				loadResource: (url, type = 'script') => {
+					return new Promise((resolve, reject) => {
+						// Don't load the same file twice
+						if (document.querySelector(`[src="${url}"]`) || document.querySelector(`[href="${url}"]`)) return resolve();
+						
+						let el;
+						if (type === 'script') {
+							el = document.createElement('script');
+							el.src = url;
+						} else if (type === 'style') {
+							el = document.createElement('link');
+							el.rel = 'stylesheet';
+							el.href = url;
+						}
+						el.onload = resolve;
+						el.onerror = reject;
+						document.head.appendChild(el);
+					});
+				},
 			};
 
 			/* =====================================================================
@@ -587,9 +601,224 @@
 				deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha),
 				fileUploadSizeLimit: () => SyncService.active.fileUploadSizeLimit(),
 			};
+/* =====================================================================
+			   6. VIEWER PLUGINS (The Display Engine)
+			===================================================================== */
+			const Plugins = {
+				Image: {
+					name: 'ImagePlugin',
+					supportedModes: ['view'],
+					objectUrl: null, // Local memory state
+					canHandle: (fn) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(fn || ''),
+					render: function(filename, content) {
+						DOM.editor.style.display = 'none';
+						DOM.editor.value = ''; 
+						DOM.pushBtn.style.display = 'block';    
+						DOM.deleteBtn.style.display = 'block';  
+						DOM.viewer.style.display = 'block'; 
+
+						if (content instanceof Blob) {
+							this.objectUrl = URL.createObjectURL(content);
+							DOM.viewer.innerHTML = `
+								<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
+									<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+								</div>`;
+						}
+					},
+					cleanup: function() {
+						if (this.objectUrl) {
+							URL.revokeObjectURL(this.objectUrl);
+							this.objectUrl = null;
+						}
+						DOM.viewer.innerHTML = '';
+					}
+				},
+
+				PDF: {
+					name: 'PDFPlugin',
+					supportedModes: ['view'],
+					objectUrl: null,
+					canHandle: (fn) => /\.pdf$/i.test(fn || ''),
+					render: function(filename, content) {
+						DOM.editor.style.display = 'none';
+						DOM.editor.value = ''; 
+						DOM.pushBtn.style.display = 'block';    
+						DOM.deleteBtn.style.display = 'block';  
+						DOM.viewer.style.display = 'block'; 
+
+						if (content instanceof Blob) {
+							this.objectUrl = URL.createObjectURL(content);
+							DOM.viewer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+						}
+					},
+					cleanup: function() {
+						if (this.objectUrl) {
+							URL.revokeObjectURL(this.objectUrl);
+							this.objectUrl = null;
+						}
+						DOM.viewer.innerHTML = '';
+					}
+				},
+
+				Markdown: {
+					name: 'MarkdownPlugin',
+					supportedModes: ['edit', 'view'],
+					depsLoaded: false,
+					canHandle: (fn) => /\.(md|markdown)$/i.test(fn || ''),
+					loadDeps: async function() {
+						if (this.depsLoaded) return;
+						UI.showStatus('Loading Markdown engine...', false);
+						await Promise.all([
+							Utils.loadResource('https://cdn.jsdelivr.net/npm/marked/marked.min.js'),
+							Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css', 'style'),
+							Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'),
+							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
+							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
+						]);
+						await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js');
+						marked.use(window.markedKatex({ throwOnError: false, output: 'html' }));
+						this.depsLoaded = true;
+						UI.showStatus('Markdown engine loaded.');
+					},
+					render: async function(filename, content) {
+						DOM.editor.disabled = false;
+						DOM.editor.style.opacity = '1';
+						DOM.editor.value = typeof content === 'string' ? content : '';
+						DOM.pushBtn.style.display = 'block';
+						DOM.deleteBtn.style.display = 'block';
+
+						if (AppState.isViewMode) {
+							DOM.editor.style.display = 'none';
+							DOM.viewer.style.display = 'block';
+							DOM.viewToggle.innerText = '✏️'; 
+							
+							// Lazy-load dependencies on demand
+							await this.loadDeps();
+							
+							// 1. THE FIX: Parse into an inert template so the browser doesn't auto-fetch local links
+							const template = document.createElement('template');
+							template.innerHTML = marked.parse(DOM.editor.value);
+							
+							// 2. Syntax Highlight the inert nodes
+							template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+							
+							// 3. Resolve Local Images BEFORE inserting into the live DOM
+							const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
+								const src = img.getAttribute('src');
+								if (src && !src.match(/^(http|https|data:)/i)) {
+									// Erase the broken local path immediately
+									img.removeAttribute('src'); 
+									
+									const file = await DBService.get(Utils.resolvePath(filename, src));
+									if (file && file.content instanceof Blob) {
+										const objectUrl = URL.createObjectURL(file.content);
+										img.src = objectUrl;
+										img.onload = () => URL.revokeObjectURL(objectUrl); 
+									} else {
+										img.alt = `[Image missing locally: ${src}]`;
+									}
+								}
+							});
+
+							// Wait for all IndexedDB transactions to finish
+							await Promise.all(imgPromises);
+							
+							// 4. Safely inject the hydrated content into the live DOM
+							DOM.viewer.innerHTML = '';
+							DOM.viewer.appendChild(template.content);
+							
+						} else {
+							DOM.viewer.style.display = 'none';
+							DOM.viewer.innerHTML = '';
+							DOM.editor.style.display = 'block';
+							DOM.viewToggle.innerText = '👁️'; 
+						}
+					},
+					toggleView: async function(filename) {
+						AppState.isViewMode = !AppState.isViewMode;
+						await this.render(filename, DOM.editor.value);
+					},
+					cleanup: () => DOM.viewer.innerHTML = ''
+				},
+
+				Text: {
+					name: 'TextPlugin',
+					supportedModes: ['edit', 'view'],
+					depsLoaded: false,
+					canHandle: (fn) => Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || ''),
+					loadDeps: async function() {
+						if (this.depsLoaded) return;
+						await Promise.all([
+							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
+							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
+						]);
+						this.depsLoaded = true;
+					},
+					render: async function(filename, content) {
+						DOM.editor.disabled = false;
+						DOM.editor.style.opacity = '1';
+						DOM.editor.value = typeof content === 'string' ? content : '';
+						DOM.pushBtn.style.display = 'block';
+						DOM.deleteBtn.style.display = 'block';
+
+						if (AppState.isViewMode) {
+							DOM.editor.style.display = 'none';
+							DOM.viewer.style.display = 'block';
+							DOM.viewToggle.innerText = '✏️'; 
+							
+							await this.loadDeps();
+							const ext = filename.split('.').pop().toLowerCase();
+							const escaped = DOM.editor.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+							DOM.viewer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+							DOM.viewer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+						} else {
+							DOM.viewer.style.display = 'none';
+							DOM.viewer.innerHTML = '';
+							DOM.editor.style.display = 'block';
+							DOM.viewToggle.innerText = '👁️'; 
+						}
+					},
+					toggleView: async function(filename) {
+						AppState.isViewMode = !AppState.isViewMode;
+						await this.render(filename, DOM.editor.value);
+					},
+					cleanup: () => DOM.viewer.innerHTML = ''
+				},
+
+				Unsupported: {
+					name: 'UnsupportedPlugin',
+					supportedModes: ['edit', 'view'],
+					canHandle: () => true, // Catch-all fallback
+					render: function(filename, content) {
+						DOM.editor.style.display = 'none';
+						DOM.editor.value = ''; 
+						DOM.pullBtn.style.display = 'block';   
+						DOM.pushBtn.style.display = 'block';   
+						DOM.deleteBtn.style.display = 'block'; 
+						DOM.viewer.style.display = 'block';
+
+						DOM.viewer.innerHTML = `
+							<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
+								<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
+								<i>Binary File</i><br><br>
+								<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
+							</div>`;
+					},
+					cleanup: function() {
+						DOM.viewer.innerHTML = '';
+					}
+				}
+			};
+			const PluginRegistry = [
+				Plugins.Image,
+				Plugins.PDF,
+				Plugins.Markdown,
+				Plugins.Text,
+				Plugins.Unsupported // Must be last!
+			];
 
 			/* =====================================================================
-			   6. UI CONTROLLER (Visual Updates)
+			   7. UI CONTROLLER (Visual Updates)
 			===================================================================== */
 			const UI = {
 				toggleSidebar() {
@@ -637,81 +866,43 @@
 					DOM.viewToggle.style.display = 'none';
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 				},
-				setEditorActive(filename, content) {
+				async setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
 					DOM.filenameLabel.innerText = filename;
 					DOM.statusBar.style.display = 'none';
 					DOM.pullBtn.style.display = 'block';
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 
-					const isImage = Utils.isImageFile(filename);
-					const isPdf = Utils.isPdfFile(filename);
-					const isText = Utils.isTextFile(filename);
-					const isUnsupported = !isImage && !isPdf && !isText;
-
-					if (isUnsupported) {
-						// --- UNSUPPORTED MODE ---
-						DOM.viewToggle.style.display = 'none';
-						DOM.editor.style.display = 'none';
-						DOM.editor.value = ''; 
-						DOM.pullBtn.style.display = 'block';   // <-- FIX: Allow Syncing
-						DOM.pushBtn.style.display = 'block';   // <-- FIX: Allow Uploading
-						DOM.deleteBtn.style.display = 'block'; 
-						DOM.viewer.style.display = 'block';
-
-						DOM.viewer.innerHTML = `
-							<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
-								<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
-								<i>Binary File</i><br><br>
-								<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
-							</div>`;
-					} else if (isImage || isPdf) {
-						// --- BINARY / MEDIA MODE ---
-						DOM.viewToggle.style.display = 'none';
-						DOM.editor.style.display = 'none';
-						DOM.editor.value = ''; 
-						DOM.pushBtn.style.display = 'block';    
-						DOM.deleteBtn.style.display = 'block';  
-						DOM.viewer.style.display = 'block'; 
-
-						if (content instanceof Blob) {
-							const objectUrl = URL.createObjectURL(content);
-							if (isImage) {
-								DOM.viewer.innerHTML = `
-									<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
-										<img src="${objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-									</div>`;
-								DOM.viewer.querySelector('img').onload = () => URL.revokeObjectURL(objectUrl);
-							} else if (isPdf) {
-								DOM.viewer.innerHTML = `
-									<iframe src="${objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></iframe>`;
-							}
-						} else {
-							DOM.viewer.innerHTML = `<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;"><i>Media placeholder. Click "⬇️ Pull File" to download.</i></div>`;
-						}
-					} else {
-						// --- TEXT MODE ---
-						DOM.viewToggle.style.display = 'flex';
-						DOM.editor.disabled = false;
-						DOM.editor.style.opacity = '1';
-						DOM.editor.value = content || '';
-						DOM.pushBtn.style.display = 'block';
-						DOM.deleteBtn.style.display = 'block';
-
-						if (AppState.isViewMode) {
-							Actions.renderPreview();
-							DOM.editor.style.display = 'none';
-							DOM.viewer.style.display = 'block';
-							DOM.viewToggle.innerText = '✏️'; 
-						} else {
-							DOM.viewer.style.display = 'none';
-							DOM.viewer.innerHTML = '';
-							DOM.editor.style.display = 'block';
-							DOM.viewToggle.innerText = '👁️'; 
-						}
+					// 1. Safety Lifecycle: Unmount the previous plugin
+					if (AppState.activePlugin && AppState.activePlugin.cleanup) {
+						AppState.activePlugin.cleanup();
 					}
+
+					// 2. Routing: Find the right plugin
+					const plugin = PluginRegistry.find(p => p.canHandle(filename));
+					AppState.activePlugin = plugin;
+
+					// 3. MODE NEGOTIATION
+					// If the app is in 'edit' mode, but the plugin only supports 'view', force view.
+					// If the app is in 'view' mode, but the plugin only supports 'edit', force edit.
+					if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) {
+						AppState.isViewMode = true;
+					} else if (!plugin.supportedModes.includes('view') && AppState.isViewMode) {
+						AppState.isViewMode = false;
+					}
+
+					// 4. Centralized UI Toggle
+					// Only show the toggle button if the plugin supports BOTH modes
+					if (plugin.supportedModes.includes('view') && plugin.supportedModes.includes('edit')) {
+						DOM.viewToggle.style.display = 'flex';
+					} else {
+						DOM.viewToggle.style.display = 'none';
+					}
+
+					// 5. Execute the specific plugin's render logic
+					await plugin.render(filename, content);
 				},
-async renderFileList(searchTerm = '', deepSearch = false) {
+				async renderFileList(searchTerm = '', deepSearch = false) {
 					// 1. Grab a ticket for this specific render request
 					const currentRenderId = ++AppState.renderId;
 					
@@ -850,7 +1041,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 			};
 
 			/* =====================================================================
-			   7. ACTIONS (Business Logic & Workflows)
+			   9. ACTIONS (Business Logic & Workflows)
 			===================================================================== */
 			const Actions = {
 				createProfile(name) {
@@ -1234,7 +1425,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						UI.showStatus(`Pull failed: ${err.message}`, true);
 					}
 				},
-async pushFile() {
+				async pushFile() {
 					const filename = AppState.currentFilename;
 					if (!filename) return;
 
@@ -1314,63 +1505,19 @@ async pushFile() {
 				},
 
 				toggleViewMode() {
-					if (!AppState.currentFilename
-									|| Utils.isImageFile(AppState.currentFilename)
-									|| Utils.isPdfFile(AppState.currentFilename)) return;
-
-					AppState.isViewMode = !AppState.isViewMode;
-
-					if (AppState.isViewMode) {
-						this.renderPreview();
-						DOM.editor.style.display = 'none';
-						DOM.viewer.style.display = 'block';
-						DOM.viewToggle.innerText = '✏️'; 
-					} else {
-						DOM.viewer.style.display = 'none';
-						DOM.editor.style.display = 'block';
-						DOM.editor.focus();
-						DOM.viewToggle.innerText = '👁️'; 
+					// Guard: Only proceed if a plugin is active AND it explicitly supports both modes
+					if (!AppState.activePlugin || 
+					    !AppState.activePlugin.supportedModes.includes('view') || 
+					    !AppState.activePlugin.supportedModes.includes('edit')) {
+						return;
 					}
+
+					AppState.activePlugin.toggleView(AppState.currentFilename);
 				},
-
-				renderPreview() {
-					const rawText = DOM.editor.value;
-					const ext = AppState.currentFilename.split('.').pop().toLowerCase();
-					const isMarkdown = ext === 'md' || ext === 'markdown';
-
-					// 1. Render HTML
-					if (isMarkdown && typeof marked !== 'undefined') {
-						DOM.viewer.innerHTML = marked.parse(rawText);
-					} else {
-						const escaped = rawText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-						DOM.viewer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
-					}
-
-					// 2. Syntax Highlighting
-					if (typeof hljs !== 'undefined') {
-						DOM.viewer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-					}
-
-						// 3. Post-Process Local Images
-					DOM.viewer.querySelectorAll('img').forEach(async (img) => {
-						const src = img.getAttribute('src');
-						if (src && !src.match(/^(http|https|data:)/i)) {
-							const targetPath = Utils.resolvePath(AppState.currentFilename, src);
-							const file = await DBService.get(targetPath);
-
-							if (file && file.content instanceof Blob) {
-								const objectUrl = URL.createObjectURL(file.content);
-								img.src = objectUrl;
-								// Browsers keep object URLs in memory until told otherwise. Clean it up.
-								img.onload = () => URL.revokeObjectURL(objectUrl); 
-							}
-						}
-					});
-				}
 			};
 
 			/* =====================================================================
-			   8. EVENT LISTENERS & INITIALIZATION
+			   10. EVENT LISTENERS & INITIALIZATION
 			===================================================================== */
 			AppState.syncChannel.onmessage = (event) => {
 				if (event.data.type === 'SIDEBAR_REFRESH') UI.renderFileList();
@@ -1386,12 +1533,6 @@ async pushFile() {
 			};
 
 			window.onload = () => {
-				if (typeof marked !== 'undefined' && typeof window.markedKatex !== 'undefined') {
-					marked.use(window.markedKatex({
-						throwOnError: false, // Prevents a syntax error from crashing the whole render loop
-						output: 'html'       // Renders pure HTML to avoid needing extra font logic
-					}));
-				}
 
 				initDOM();
 
@@ -1532,7 +1673,6 @@ if (e.key === 'Enter') {
 			});
 
 			document.addEventListener('paste', async (e) => {
-				// STRICT GEDIT PHILOSOPHY: Do not intercept pastes inside the text editor.
 				// Only allow pasting when focusing outside the editor (e.g., the sidebar).
 				if (e.target.id === 'note-content' || e.target.tagName === 'INPUT') return;
 
