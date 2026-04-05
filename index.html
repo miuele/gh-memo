@@ -131,7 +131,6 @@
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
 				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
     			<button onclick="Actions.addPin()">📌 Pin</button>
-				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
 				<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
 				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
@@ -619,62 +618,61 @@
 			===================================================================== */
 			const Plugins = {
 				Image: {
-					name: 'ImagePlugin',
-					supportedModes: ['view'],
-					objectUrl: null, // Local memory state
 					canHandle: (fn) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(fn || ''),
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'ImagePlugin',
+						supportedModes: ['view'],
+						objectUrl: null, // Local memory state
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						if (content instanceof Blob) {
-							this.objectUrl = URL.createObjectURL(content);
-							this.viewLayer.innerHTML = `
-								<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
-									<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-								</div>`;
+							if (content instanceof Blob) {
+								this.objectUrl = URL.createObjectURL(content);
+								this.viewLayer.innerHTML = `
+									<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
+										<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+									</div>`;
+							}
+						},
+						unmount: function() {
+							if (this.objectUrl) {
+								URL.revokeObjectURL(this.objectUrl);
+								this.objectUrl = null;
+							}
+							this.viewLayer.innerHTML = '';
 						}
-					},
-					unmount: function() {
-						if (this.objectUrl) {
-							URL.revokeObjectURL(this.objectUrl);
-							this.objectUrl = null;
-						}
-						this.viewLayer.innerHTML = '';
-					}
+					}),
 				},
 
 				PDF: {
-					name: 'PDFPlugin',
-					supportedModes: ['view'],
-					objectUrl: null,
 					canHandle: (fn) => /\.pdf$/i.test(fn || ''),
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'PDFPlugin',
+						supportedModes: ['view'],
+						objectUrl: null,
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						if (content instanceof Blob) {
-							this.objectUrl = URL.createObjectURL(content);
-							this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+							if (content instanceof Blob) {
+								this.objectUrl = URL.createObjectURL(content);
+								this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+							}
+						},
+						unmount: function() {
+							if (this.objectUrl) {
+								URL.revokeObjectURL(this.objectUrl);
+								this.objectUrl = null;
+							}
+							this.viewLayer.innerHTML = '';
 						}
-					},
-					unmount: function() {
-						if (this.objectUrl) {
-							URL.revokeObjectURL(this.objectUrl);
-							this.objectUrl = null;
-						}
-						this.viewLayer.innerHTML = '';
-					}
+					}),
 				},
 				Markdown: {
-					name: 'MarkdownPlugin',
-					supportedModes: ['edit', 'view'],
-					depsLoaded: false,
-					textarea: null,
-					viewLayer: null,
-					filename: null,
 					canHandle: (fn) => /\.(md|markdown)$/i.test(fn || ''),
-					
+					depsLoaded: false,
+
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						UI.showStatus('Loading Markdown engine...', false);
@@ -691,73 +689,77 @@
 						UI.showStatus('Markdown engine loaded.');
 					},
 
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.filename = filename;
-						this.viewLayer = viewLayer;
-
-						// Ask the factory for a standard editor, but the plugin still OWNS it
-						this.textarea = Utils.createStandardEditor(content, saveCallback);
-						editLayer.appendChild(this.textarea);
-
-						if (AppState.isViewMode) await this.renderMarkdown();
-					},
-
-					onModeSwitch: async function(isViewMode) {
-						if (isViewMode) await this.renderMarkdown();
-						else this.textarea.focus();
-					},
-
-					renderMarkdown: async function() {
-						await this.loadDeps();
-						const template = document.createElement('template');
-						template.innerHTML = marked.parse(this.textarea.value);
-						template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+					create: () => ({
+						name: 'MarkdownPlugin',
+						supportedModes: ['edit', 'view'],
+						textarea: null,
+						viewLayer: null,
+						filename: null,
 						
-						const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
-							const src = img.getAttribute('src');
-							if (src && !src.match(/^(http|https|data:)/i)) {
-								// Erase the broken local path immediately
-								img.removeAttribute('src'); 
-								
-								const file = await DBService.get(Utils.resolvePath(this.filename, src));
-								if (file && file.content instanceof Blob) {
-									const objectUrl = URL.createObjectURL(file.content);
-									img.src = objectUrl;
-									img.onload = () => URL.revokeObjectURL(objectUrl); 
-								} else {
-									img.alt = `[Image missing locally: ${src}]`;
+
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.filename = filename;
+							this.viewLayer = viewLayer;
+
+							// Ask the factory for a standard editor, but the plugin still OWNS it
+							this.textarea = Utils.createStandardEditor(content, saveCallback);
+							editLayer.appendChild(this.textarea);
+
+							if (AppState.isViewMode) await this.renderMarkdown();
+						},
+
+						onModeSwitch: async function(isViewMode) {
+							if (isViewMode) await this.renderMarkdown();
+							else this.textarea.focus();
+						},
+
+						renderMarkdown: async function() {
+							await Plugins.Markdown.loadDeps();
+							const template = document.createElement('template');
+							template.innerHTML = marked.parse(this.textarea.value);
+							template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+							
+							const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
+								const src = img.getAttribute('src');
+								if (src && !src.match(/^(http|https|data:)/i)) {
+									// Erase the broken local path immediately
+									img.removeAttribute('src'); 
+									
+									const file = await DBService.get(Utils.resolvePath(this.filename, src));
+									if (file && file.content instanceof Blob) {
+										const objectUrl = URL.createObjectURL(file.content);
+										img.src = objectUrl;
+										img.onload = () => URL.revokeObjectURL(objectUrl); 
+									} else {
+										img.alt = `[Image missing locally: ${src}]`;
+									}
 								}
+							});
+
+							// Wait for all IndexedDB transactions to finish
+							await Promise.all(imgPromises);
+							
+							this.viewLayer.innerHTML = '';
+							this.viewLayer.appendChild(template.content);
+						},
+
+						freeze: function() {
+							if (this.textarea) {
+								this.textarea.disabled = true;
 							}
-						});
+						},
 
-						// Wait for all IndexedDB transactions to finish
-						await Promise.all(imgPromises);
-						
-						this.viewLayer.innerHTML = '';
-						this.viewLayer.appendChild(template.content);
-					},
-
-					freeze: function() {
-						if (this.textarea) {
-							this.textarea.disabled = true;
-						}
-					},
-
-					unmount: function() {
-						this.textarea = null; 
-						this.viewLayer = null;
-						this.filename = null;
-					} 
+						unmount: function() {
+							this.textarea = null; 
+							this.viewLayer = null;
+							this.filename = null;
+						} 
+					}),
 				},
 				Text: {
-					name: 'TextPlugin',
-					supportedModes: ['edit', 'view'],
-					depsLoaded: false,
-					textarea: null,
-					viewLayer: null,
-					filename: null,
 					canHandle: (fn) => Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || ''),
-					
+					depsLoaded: false,
+
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						await Promise.all([
@@ -767,59 +769,69 @@
 						this.depsLoaded = true;
 					},
 
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.filename = filename;
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'TextPlugin',
+						supportedModes: ['edit', 'view'],
+						textarea: null,
+						viewLayer: null,
+						filename: null,
+						
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.filename = filename;
+							this.viewLayer = viewLayer;
 
-						// Use the exact same factory here
-						this.textarea = Utils.createStandardEditor(content, saveCallback);
-						editLayer.appendChild(this.textarea);
+							// Use the exact same factory here
+							this.textarea = Utils.createStandardEditor(content, saveCallback);
+							editLayer.appendChild(this.textarea);
 
-						if (AppState.isViewMode) await this.renderText(filename);
-					},
+							if (AppState.isViewMode) await this.renderText(filename);
+						},
 
-					onModeSwitch: async function(isViewMode) {
-						// We need filename for extension detection in syntax highlighting
-						if (isViewMode) await this.renderText(this.filename); 
-						else this.textarea.focus();
-					},
+						onModeSwitch: async function(isViewMode) {
+							// We need filename for extension detection in syntax highlighting
+							if (isViewMode) await this.renderText(this.filename); 
+							else this.textarea.focus();
+						},
 
-					renderText: async function(filename) {
-						await this.loadDeps();
-						const ext = filename.split('.').pop().toLowerCase();
-						const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-						this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
-						this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-					},
-					freeze: function() {
-						if (this.textarea) {
-							this.textarea.disabled = true;
+						renderText: async function(filename) {
+							await Plugins.Text.loadDeps();
+							const ext = filename.split('.').pop().toLowerCase();
+							const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+							this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+							this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+						},
+						freeze: function() {
+							if (this.textarea) {
+								this.textarea.disabled = true;
+							}
+						},
+						unmount: function() {
+							this.textarea = null;
+							this.viewLayer = null;
 						}
-					},
-					unmount: function() {
-						this.textarea = null;
-						this.viewLayer = null;
-					}
+					}),
 				},
 
 				Unsupported: {
-					name: 'UnsupportedPlugin',
-					supportedModes: ['view'],
 					canHandle: () => true, // Catch-all fallback
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'UnsupportedPlugin',
+						supportedModes: ['view'],
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						this.viewLayer.innerHTML = `
-							<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
-								<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
-								<i>Binary File</i><br><br>
-								<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
-							</div>`;
-					},
-					unmount: function() {
-						this.viewLayer.innerHTML = '';
-					}
+							this.viewLayer.innerHTML = `
+								<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
+									<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
+									<i>Binary File</i><br><br>
+									<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
+								</div>`;
+						},
+						unmount: function() {
+							this.viewLayer.innerHTML = '';
+						}
+					}),
 				}
 			};
 			const PluginRegistry = [
@@ -906,8 +918,9 @@
 						AppState.activePlugin.unmount();
 					}
 
-					// 2. NEGOTIATE
-					const plugin = PluginRegistry.find(p => p.canHandle(filename));
+					// 2. NEGOTIATE & INSTANTIATE
+					const pluginHandler = PluginRegistry.find(p => p.canHandle(filename));
+					const plugin = pluginHandler.create();
 					AppState.activePlugin = plugin;
 
 					if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) AppState.isViewMode = true;
@@ -1013,9 +1026,10 @@
 						<div class="profile-card ${isActive ? 'active' : ''}">
 							<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
 								<h3 style="margin: 0;">${profile.name} ${isActive ? ' <span style="color:var(--accent); font-size: 14px;">(Active)</span>' : ''}</h3>
-								<div>
-									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch to this Profile</button>` : ''}
-									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">Delete</button>
+								<div style="display: flex; gap: 8px;">
+									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch</button>` : ''}
+									<button onclick="Actions.clearDB('${id}')" style="color: #c98200;">🧹 Clear Data</button>
+									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">🗑️ Delete</button>
 								</div>
 							</div>
 							<div class="form-grid">
@@ -1295,17 +1309,28 @@
 					}, 500); 
 				},
 
-				async clearDB() {
-					if (!confirm('WARNING: Permanently delete ALL local notes?')) return;
+				async clearDB(id) {
+					const profile = AppState.profiles[id];
+					if (!profile) return;
+
+					if (!confirm(`WARNING: Permanently wipe all local notes for profile "${profile.name}"?\n\n(This does not delete the profile itself, just its offline cache.)`)) return;
+
 					try {
-						await DBService.clear();
-						UI.resetEditor();
-						history.replaceState(null, null, window.location.pathname);
-						UI.renderFileList();
-						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-						UI.showStatus('Local database completely cleared.');
+						if (id === AppState.activeProfileId) {
+							// Active Profile: Clear via DBService and reset the live UI
+							await DBService.clear();
+							UI.resetEditor();
+							history.replaceState(null, null, window.location.pathname);
+							UI.renderFileList();
+							AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+							UI.showStatus(`Local cache cleared for ${profile.name}.`);
+						} else {
+							// Background Profile: Just drop the IndexedDB from the browser silently
+							indexedDB.deleteDatabase(profile.dbName);
+							UI.showStatus(`Local cache cleared for ${profile.name}.`);
+						}
 					} catch(err) {
-						UI.showStatus('Failed to clear local database.', true);
+						UI.showStatus(`Failed to clear local cache.`, true);
 					}
 				},
 
