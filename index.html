@@ -497,23 +497,20 @@
 				},
 
 				async refreshAccessToken() {
-					const { appKey, appSecret, refreshToken } = AppState.config;
+					const { appKey, refreshToken } = AppState.config;
 					
-					const payload = new URLSearchParams({
-						refresh_token: refreshToken,
-						grant_type: 'refresh_token',
-						client_id: appKey
-					});
-					
-					// CONDITIONAL: Only append the secret if using the legacy flow
-					if (appSecret) payload.append('client_secret', appSecret);
-
 					const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-						body: payload
+						body: new URLSearchParams({
+							refresh_token: refreshToken,
+							grant_type: 'refresh_token',
+							client_id: appKey
+						})
 					});
+					
 					if (!res.ok) throw new Error('Refresh failed.');
+					
 					const data = await res.json();
 					AppState.config.token = data.access_token;
 					AppState.profiles[AppState.activeProfileId].config = AppState.config;
@@ -1032,25 +1029,15 @@
 								
 								<!-- Dropbox Only Fields -->
 								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
-									<label>App Key</label>
-									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}">
+									<label>App Key (Client ID)</label>
+									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}" placeholder="Found in Dropbox App Console">
 								</div>
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
-									<label>App Secret</label>
-									<input type="password" id="cfg-dbx-secret-${id}" value="${c.appSecret || ''}">
-								</div>
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
-									
-									<span style="font-size: 13px; color: #555;"><strong>Modern Flow (Recommended if Hosted)</strong></span>
-									<button onclick="Actions.linkDropboxPKCE('${id}')" style="background: var(--accent); color: white; border: none; width: max-content;">⚡ Auto-Link via PKCE (No Secret Needed)</button>
-									
-									<span style="font-size: 13px; color: #555; margin-top: 10px;"><strong>Legacy Flow (For Local file://)</strong></span>
-									<div style="display: flex; gap: 10px;">
-										<button onclick="Actions.linkDropbox('${id}')">1. Get Auth Code</button>
-										<button onclick="Actions.exchangeDropboxCode('${id}')">2. Submit Code</button>
-									</div>
-									
-									<span style="font-size: 12px; color: #666; margin-top: 5px;">
+								
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 15px; align-items: center;">
+									<button onclick="Actions.linkDropboxPKCE('${id}')" style="background: var(--accent); color: white; border: none; padding: 8px 16px;">
+										⚡ Link Dropbox Account
+									</button>
+									<span style="font-size: 13px; color: #666;">
 										Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}
 									</span>
 								</div>
@@ -1290,54 +1277,6 @@
 					UI.showStatus(`Successfully imported ${filename}.`);
 					AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 					this.openFile(filename);
-				},
-				linkDropbox(id) {
-					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
-					if (!key) return alert("Please enter your App Key first.");
-					
-					// Opens the Dropbox approval page asking for offline access
-					const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&token_access_type=offline`;
-					window.open(authUrl, '_blank');
-				},
-
-				async exchangeDropboxCode(id) {
-					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
-					const secret = document.getElementById(`cfg-dbx-secret-${id}`).value.trim();
-					const code = prompt("Paste the Authorization Code from Dropbox:");
-					
-					if (!code || !key || !secret) return alert("Missing Code, Key, or Secret.");
-
-					UI.showStatus("Linking Dropbox...");
-					try {
-						const credentials = btoa(`${key}:${secret}`);
-						const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/x-www-form-urlencoded',
-								'Authorization': `Basic ${credentials}`
-							},
-							body: new URLSearchParams({ code: code, grant_type: 'authorization_code' })
-						});
-
-						const data = await res.json();
-						if (!res.ok) throw new Error(data.error_description || "Auth failed");
-
-						// Save everything to the profile
-						const profile = AppState.profiles[id];
-						profile.config.provider = 'dropbox';
-						profile.config.appKey = key;
-						profile.config.appSecret = secret;
-						profile.config.token = data.access_token;
-						profile.config.refreshToken = data.refresh_token; // The holy grail
-						
-						localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-						if (id === AppState.activeProfileId) AppState.config = profile.config;
-						
-						UI.showStatus("Dropbox linked successfully! You never have to do this again.");
-						UI.renderSettings(); // Refresh UI
-					} catch (err) {
-						UI.showStatus(`Linking failed: ${err.message}`, true);
-					}
 				},
 				handleTyping(newContent) {
 					if (!AppState.currentFilename) return;
