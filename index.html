@@ -1780,15 +1780,17 @@ if (e.key === 'Enter') {
 			});
 
 			document.addEventListener('paste', async (e) => {
-				// Only allow pasting when focusing outside the editor (e.g., the sidebar).
-				if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+				if (e.target.tagName === 'INPUT' || !e.target.closest('#sidebar')) {
+					return; 
+				}
 
 				const clipboardData = e.clipboardData || window.clipboardData;
 				const items = clipboardData.items;
 				
 				for (let i = 0; i < items.length; i++) {
 					const item = items[i];
-					
+
+					console.log(item);
 					if (item.type.indexOf('image') !== -1) {
 						e.preventDefault(); 
 						
