@@ -79,33 +79,7 @@
 				display: flex; justify-content: space-between; align-items: center; min-height: 50px; flex-shrink: 0;
 			}
 			#current-filename { line-height: 1; display: inline-flex; align-items: center; }
-			#note-content {
-				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px; border: none;
-				resize: none; font-family: monospace; font-size: 15px; line-height: 1.5;
-				outline: none; background: transparent; transition: opacity 0.2s;
-			}
-			#note-content:disabled { cursor: not-allowed; }
-			#note-viewer {
-				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px;
-				overflow-y: auto; display: none; background: white;
-				justify-content: center; align-items: flex-start;
-			}
 			#editor-container { flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-			#note-viewer {
-				flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 20px 80px 20px;
-				overflow-y: auto; display: none; background: white; line-height: 1.6;
-			}
-			#note-viewer img { max-width: 100%; border-radius: 6px; }
-			#note-viewer pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
-			#note-viewer code { font-family: monospace; font-size: 14px; }
-			#note-viewer a { color: var(--accent); text-decoration: none; cursor: pointer; }
-			#note-viewer a:hover { text-decoration: underline; }
-			#note-viewer .katex-display { 
-				overflow-x: auto; 
-				overflow-y: hidden; 
-				padding: 10px 0; 
-			}
-
 			#view-toggle {
 				position: absolute; bottom: 20px; right: 20px; width: 56px; height: 56px;
 				border-radius: 28px; background: var(--accent); color: white; border: none;
@@ -176,9 +150,9 @@
 					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
 				</div>
 			</div>
-			<div id="editor-container">
-				<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
-				<div id="note-viewer"></div>
+<div id="editor-container">
+				<div id="view-layer" style="width: 100%; height: 100%; overflow-y: auto; display: none; box-sizing: border-box; padding: 20px;"></div>
+				<div id="edit-layer" style="width: 100%; height: 100%; overflow-y: auto; display: none; box-sizing: border-box; padding: 0;"></div>
 				<div id="settings-panel"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
@@ -204,6 +178,7 @@
 				currentFilename: null,
 				typingTimer: null,
 				activePlugin: null,
+				isFrozen: false,
 				syncChannel: new BroadcastChannel('github_notes_sync')
 			};
 
@@ -217,8 +192,8 @@
 				DOM.pinContainer = document.getElementById('pin-container');
 				DOM.searchBar = document.getElementById('search-bar');
 				DOM.fileList = document.getElementById('file-list');
-				DOM.editor = document.getElementById('note-content');
-				DOM.viewer = document.getElementById('note-viewer');
+				DOM.viewLayer = document.getElementById('view-layer');
+				DOM.editLayer = document.getElementById('edit-layer');
 				DOM.filenameLabel = document.getElementById('current-filename');
 				DOM.pullBtn = document.getElementById('pull-btn');
 				DOM.pushBtn = document.getElementById('push-btn');
@@ -283,6 +258,27 @@
 						document.head.appendChild(el);
 					});
 				},
+				createStandardEditor: (content, saveCallback) => {
+					const textarea = document.createElement('textarea');
+					textarea.style.cssText = 'width: 100%; height: 100%; box-sizing: border-box; padding: 20px; border: none; resize: none; outline: none; font-family: monospace; font-size: 15px; line-height: 1.5;';
+					textarea.value = typeof content === 'string' ? content : '';
+					
+					// Auto-save hook
+					textarea.addEventListener('input', (e) => saveCallback(e.target.value));
+					
+					// Standard Tab key indentation
+					textarea.addEventListener('keydown', function(e) {
+						if (e.key === 'Tab') {
+							e.preventDefault();
+							const start = this.selectionStart, end = this.selectionEnd;
+							this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+							this.selectionStart = this.selectionEnd = start + 4;
+							saveCallback(this.value);
+						}
+					});
+					
+					return textarea;
+				}
 			};
 
 			/* =====================================================================
@@ -610,27 +606,24 @@
 					supportedModes: ['view'],
 					objectUrl: null, // Local memory state
 					canHandle: (fn) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(fn || ''),
-					render: function(filename, content) {
-						DOM.editor.style.display = 'none';
-						DOM.editor.value = ''; 
-						DOM.pushBtn.style.display = 'block';    
-						DOM.deleteBtn.style.display = 'block';  
-						DOM.viewer.style.display = 'block'; 
+					viewLayer: null,
+					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+						this.viewLayer = viewLayer;
 
 						if (content instanceof Blob) {
 							this.objectUrl = URL.createObjectURL(content);
-							DOM.viewer.innerHTML = `
+							this.viewLayer.innerHTML = `
 								<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
 									<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
 								</div>`;
 						}
 					},
-					cleanup: function() {
+					unmount: function() {
 						if (this.objectUrl) {
 							URL.revokeObjectURL(this.objectUrl);
 							this.objectUrl = null;
 						}
-						DOM.viewer.innerHTML = '';
+						this.viewLayer.innerHTML = '';
 					}
 				},
 
@@ -639,32 +632,32 @@
 					supportedModes: ['view'],
 					objectUrl: null,
 					canHandle: (fn) => /\.pdf$/i.test(fn || ''),
-					render: function(filename, content) {
-						DOM.editor.style.display = 'none';
-						DOM.editor.value = ''; 
-						DOM.pushBtn.style.display = 'block';    
-						DOM.deleteBtn.style.display = 'block';  
-						DOM.viewer.style.display = 'block'; 
+					viewLayer: null,
+					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+						this.viewLayer = viewLayer;
 
 						if (content instanceof Blob) {
 							this.objectUrl = URL.createObjectURL(content);
-							DOM.viewer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+							this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
 						}
 					},
-					cleanup: function() {
+					unmount: function() {
 						if (this.objectUrl) {
 							URL.revokeObjectURL(this.objectUrl);
 							this.objectUrl = null;
 						}
-						DOM.viewer.innerHTML = '';
+						this.viewLayer.innerHTML = '';
 					}
 				},
-
 				Markdown: {
 					name: 'MarkdownPlugin',
 					supportedModes: ['edit', 'view'],
 					depsLoaded: false,
+					textarea: null,
+					viewLayer: null,
+					filename: null,
 					canHandle: (fn) => /\.(md|markdown)$/i.test(fn || ''),
+					
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						UI.showStatus('Loading Markdown engine...', false);
@@ -680,72 +673,74 @@
 						this.depsLoaded = true;
 						UI.showStatus('Markdown engine loaded.');
 					},
-					render: async function(filename, content) {
-						DOM.editor.disabled = false;
-						DOM.editor.style.opacity = '1';
-						DOM.editor.value = typeof content === 'string' ? content : '';
-						DOM.pushBtn.style.display = 'block';
-						DOM.deleteBtn.style.display = 'block';
 
-						if (AppState.isViewMode) {
-							DOM.editor.style.display = 'none';
-							DOM.viewer.style.display = 'block';
-							DOM.viewToggle.innerText = '✏️'; 
-							
-							// Lazy-load dependencies on demand
-							await this.loadDeps();
-							
-							// 1. THE FIX: Parse into an inert template so the browser doesn't auto-fetch local links
-							const template = document.createElement('template');
-							template.innerHTML = marked.parse(DOM.editor.value);
-							
-							// 2. Syntax Highlight the inert nodes
-							template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-							
-							// 3. Resolve Local Images BEFORE inserting into the live DOM
-							const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
-								const src = img.getAttribute('src');
-								if (src && !src.match(/^(http|https|data:)/i)) {
-									// Erase the broken local path immediately
-									img.removeAttribute('src'); 
-									
-									const file = await DBService.get(Utils.resolvePath(filename, src));
-									if (file && file.content instanceof Blob) {
-										const objectUrl = URL.createObjectURL(file.content);
-										img.src = objectUrl;
-										img.onload = () => URL.revokeObjectURL(objectUrl); 
-									} else {
-										img.alt = `[Image missing locally: ${src}]`;
-									}
+					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+						this.filename = filename;
+						this.viewLayer = viewLayer;
+
+						// Ask the factory for a standard editor, but the plugin still OWNS it
+						this.textarea = Utils.createStandardEditor(content, saveCallback);
+						editLayer.appendChild(this.textarea);
+
+						if (AppState.isViewMode) await this.renderMarkdown();
+					},
+
+					onModeSwitch: async function(isViewMode) {
+						if (isViewMode) await this.renderMarkdown();
+						else this.textarea.focus();
+					},
+
+					renderMarkdown: async function() {
+						await this.loadDeps();
+						const template = document.createElement('template');
+						template.innerHTML = marked.parse(this.textarea.value);
+						template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+						
+						const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
+							const src = img.getAttribute('src');
+							if (src && !src.match(/^(http|https|data:)/i)) {
+								// Erase the broken local path immediately
+								img.removeAttribute('src'); 
+								
+								const file = await DBService.get(Utils.resolvePath(this.filename, src));
+								if (file && file.content instanceof Blob) {
+									const objectUrl = URL.createObjectURL(file.content);
+									img.src = objectUrl;
+									img.onload = () => URL.revokeObjectURL(objectUrl); 
+								} else {
+									img.alt = `[Image missing locally: ${src}]`;
 								}
-							});
+							}
+						});
 
-							// Wait for all IndexedDB transactions to finish
-							await Promise.all(imgPromises);
-							
-							// 4. Safely inject the hydrated content into the live DOM
-							DOM.viewer.innerHTML = '';
-							DOM.viewer.appendChild(template.content);
-							
-						} else {
-							DOM.viewer.style.display = 'none';
-							DOM.viewer.innerHTML = '';
-							DOM.editor.style.display = 'block';
-							DOM.viewToggle.innerText = '👁️'; 
+						// Wait for all IndexedDB transactions to finish
+						await Promise.all(imgPromises);
+						
+						this.viewLayer.innerHTML = '';
+						this.viewLayer.appendChild(template.content);
+					},
+
+					freeze: function() {
+						if (this.textarea) {
+							this.textarea.disabled = true;
 						}
 					},
-					toggleView: async function(filename) {
-						AppState.isViewMode = !AppState.isViewMode;
-						await this.render(filename, DOM.editor.value);
-					},
-					cleanup: () => DOM.viewer.innerHTML = ''
-				},
 
+					unmount: function() {
+						this.textarea = null; 
+						this.viewLayer = null;
+						this.filename = null;
+					} 
+				},
 				Text: {
 					name: 'TextPlugin',
 					supportedModes: ['edit', 'view'],
 					depsLoaded: false,
+					textarea: null,
+					viewLayer: null,
+					filename: null,
 					canHandle: (fn) => Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || ''),
+					
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						await Promise.all([
@@ -754,58 +749,59 @@
 						]);
 						this.depsLoaded = true;
 					},
-					render: async function(filename, content) {
-						DOM.editor.disabled = false;
-						DOM.editor.style.opacity = '1';
-						DOM.editor.value = typeof content === 'string' ? content : '';
-						DOM.pushBtn.style.display = 'block';
-						DOM.deleteBtn.style.display = 'block';
 
-						if (AppState.isViewMode) {
-							DOM.editor.style.display = 'none';
-							DOM.viewer.style.display = 'block';
-							DOM.viewToggle.innerText = '✏️'; 
-							
-							await this.loadDeps();
-							const ext = filename.split('.').pop().toLowerCase();
-							const escaped = DOM.editor.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-							DOM.viewer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
-							DOM.viewer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-						} else {
-							DOM.viewer.style.display = 'none';
-							DOM.viewer.innerHTML = '';
-							DOM.editor.style.display = 'block';
-							DOM.viewToggle.innerText = '👁️'; 
+					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+						this.filename = filename;
+						this.viewLayer = viewLayer;
+
+						// Use the exact same factory here
+						this.textarea = Utils.createStandardEditor(content, saveCallback);
+						editLayer.appendChild(this.textarea);
+
+						if (AppState.isViewMode) await this.renderText(filename);
+					},
+
+					onModeSwitch: async function(isViewMode) {
+						// We need filename for extension detection in syntax highlighting
+						if (isViewMode) await this.renderText(this.filename); 
+						else this.textarea.focus();
+					},
+
+					renderText: async function(filename) {
+						await this.loadDeps();
+						const ext = filename.split('.').pop().toLowerCase();
+						const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+						this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+						this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+					},
+					freeze: function() {
+						if (this.textarea) {
+							this.textarea.disabled = true;
 						}
 					},
-					toggleView: async function(filename) {
-						AppState.isViewMode = !AppState.isViewMode;
-						await this.render(filename, DOM.editor.value);
-					},
-					cleanup: () => DOM.viewer.innerHTML = ''
+					unmount: function() {
+						this.textarea = null;
+						this.viewLayer = null;
+					}
 				},
 
 				Unsupported: {
 					name: 'UnsupportedPlugin',
-					supportedModes: ['edit', 'view'],
+					supportedModes: ['view'],
 					canHandle: () => true, // Catch-all fallback
-					render: function(filename, content) {
-						DOM.editor.style.display = 'none';
-						DOM.editor.value = ''; 
-						DOM.pullBtn.style.display = 'block';   
-						DOM.pushBtn.style.display = 'block';   
-						DOM.deleteBtn.style.display = 'block'; 
-						DOM.viewer.style.display = 'block';
+					viewLayer: null,
+					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+						this.viewLayer = viewLayer;
 
-						DOM.viewer.innerHTML = `
+						this.viewLayer.innerHTML = `
 							<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
 								<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
 								<i>Binary File</i><br><br>
 								<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
 							</div>`;
 					},
-					cleanup: function() {
-						DOM.viewer.innerHTML = '';
+					unmount: function() {
+						this.viewLayer.innerHTML = '';
 					}
 				}
 			};
@@ -853,11 +849,19 @@
 				resetEditor() {
 					AppState.isViewMode = false;
 					AppState.currentFilename = null;
-					DOM.editor.value = '';
-					DOM.editor.disabled = true;
-					DOM.editor.style.display = 'block';
-					DOM.viewer.style.display = 'none';
-					DOM.viewer.innerHTML = '';
+
+					// 1. Unmount any active plugin to free memory
+					if (AppState.activePlugin && AppState.activePlugin.unmount) {
+						AppState.activePlugin.unmount();
+						AppState.activePlugin = null;
+					}
+
+					// 2. Clear and reset the new agnostic layers
+					DOM.editLayer.innerHTML = '';
+					DOM.viewLayer.innerHTML = '';
+					DOM.editLayer.style.display = 'block';
+					DOM.viewLayer.style.display = 'none';
+					
 					DOM.filenameLabel.innerText = 'No file selected';
 					DOM.deleteBtn.style.display = 'none';
 					DOM.pullBtn.style.display = 'none';
@@ -870,37 +874,61 @@
 					AppState.currentFilename = filename;
 					DOM.filenameLabel.innerText = filename;
 					DOM.statusBar.style.display = 'none';
-					DOM.pullBtn.style.display = 'block';
+
+					// Reset any previous cross-tab freezes
+					AppState.isFrozen = false;
+					DOM.pullBtn.disabled = false;
+					DOM.pushBtn.disabled = false;
+					DOM.editLayer.style.opacity = '1';
+					DOM.editLayer.style.pointerEvents = 'auto';
+
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 
-					// 1. Safety Lifecycle: Unmount the previous plugin
-					if (AppState.activePlugin && AppState.activePlugin.cleanup) {
-						AppState.activePlugin.cleanup();
+					// 1. UNMOUNT
+					if (AppState.activePlugin && AppState.activePlugin.unmount) {
+						AppState.activePlugin.unmount();
 					}
 
-					// 2. Routing: Find the right plugin
+					// 2. NEGOTIATE
 					const plugin = PluginRegistry.find(p => p.canHandle(filename));
 					AppState.activePlugin = plugin;
 
-					// 3. MODE NEGOTIATION
-					// If the app is in 'edit' mode, but the plugin only supports 'view', force view.
-					// If the app is in 'view' mode, but the plugin only supports 'edit', force edit.
-					if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) {
-						AppState.isViewMode = true;
-					} else if (!plugin.supportedModes.includes('view') && AppState.isViewMode) {
-						AppState.isViewMode = false;
-					}
+					if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) AppState.isViewMode = true;
+					else if (!plugin.supportedModes.includes('view') && AppState.isViewMode) AppState.isViewMode = false;
 
-					// 4. Centralized UI Toggle
-					// Only show the toggle button if the plugin supports BOTH modes
+					// 3. PREPARE CHROME
+					DOM.pullBtn.style.display = 'block';
+					DOM.pushBtn.style.display = 'block';
+					DOM.deleteBtn.style.display = 'block';
+					DOM.viewLayer.innerHTML = '';
+					DOM.editLayer.innerHTML = '';
+
+					// 4. PROVIDE SAVE HOOK
+					const saveCallback = (newContent) => Actions.handleTyping(newContent);
+
+					// 5. MOUNT
+					await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback);
+					
+					this.applyModeVisibility();
+				},
+
+				applyModeVisibility() {
+					const plugin = AppState.activePlugin;
+					
 					if (plugin.supportedModes.includes('view') && plugin.supportedModes.includes('edit')) {
 						DOM.viewToggle.style.display = 'flex';
+						DOM.viewToggle.innerText = AppState.isViewMode ? '✏️' : '👁️';
 					} else {
 						DOM.viewToggle.style.display = 'none';
 					}
 
-					// 5. Execute the specific plugin's render logic
-					await plugin.render(filename, content);
+					if (AppState.isViewMode) {
+						DOM.editLayer.style.display = 'none';
+						DOM.viewLayer.style.display = 'block';
+					} else {
+						DOM.viewLayer.style.display = 'none';
+						DOM.editLayer.style.display = 'block';
+					}
 				},
 				async renderFileList(searchTerm = '', deepSearch = false) {
 					// 1. Grab a ticket for this specific render request
@@ -1104,7 +1132,11 @@
 					history.replaceState(null, null, window.location.pathname);
 					
 					DOM.filenameLabel.innerText = '⚙️ Settings & Profiles';
-					DOM.editor.style.display = 'none';
+					
+					// FIX: Hide the new agnostic layers instead of the old editor
+					DOM.editLayer.style.display = 'none';
+					DOM.viewLayer.style.display = 'none';
+					
 					DOM.settingsPanel.style.display = 'block';
 					UI.renderSettings();
 					
@@ -1279,14 +1311,14 @@
 						UI.showStatus(`Linking failed: ${err.message}`, true);
 					}
 				},
-				handleTyping() {
+				handleTyping(newContent) {
 					if (!AppState.currentFilename) return;
 					clearTimeout(AppState.typingTimer);
 
 					AppState.typingTimer = setTimeout(async () => {
 						const note = await DBService.get(AppState.currentFilename);
 						if (note) {
-							note.content = DOM.editor.value;
+							note.content = newContent; // <--- Uses the passed value
 							note.is_dirty = true;
 							await DBService.put(note);
 
@@ -1504,15 +1536,16 @@
 				    }
 				},
 
-				toggleViewMode() {
-					// Guard: Only proceed if a plugin is active AND it explicitly supports both modes
-					if (!AppState.activePlugin || 
-					    !AppState.activePlugin.supportedModes.includes('view') || 
-					    !AppState.activePlugin.supportedModes.includes('edit')) {
-						return;
-					}
+				async toggleViewMode() {
+					const plugin = AppState.activePlugin;
+					if (!plugin || !plugin.supportedModes.includes('view') || !plugin.supportedModes.includes('edit')) return;
 
-					AppState.activePlugin.toggleView(AppState.currentFilename);
+					AppState.isViewMode = !AppState.isViewMode;
+					UI.applyModeVisibility();
+
+					if (plugin.onModeSwitch) {
+						await plugin.onModeSwitch(AppState.isViewMode);
+					}
 				},
 			};
 
@@ -1521,12 +1554,24 @@
 			===================================================================== */
 			AppState.syncChannel.onmessage = (event) => {
 				if (event.data.type === 'SIDEBAR_REFRESH') UI.renderFileList();
+				
 				if (event.data.type === 'LOCAL_EDIT' && AppState.currentFilename === event.data.filename) {
-					if (!DOM.editor.disabled) {
-						DOM.editor.disabled = true;
-						DOM.editor.style.opacity = '0.7';
+					if (!AppState.isFrozen) {
+						AppState.isFrozen = true;
+						
+						// 1. Core locks global Chrome
 						DOM.pullBtn.disabled = true;
 						DOM.pushBtn.disabled = true;
+						DOM.editLayer.style.opacity = '0.6';
+						
+						// 2. Plugin locks its specific inputs
+						if (AppState.activePlugin && AppState.activePlugin.freeze) {
+							AppState.activePlugin.freeze();
+						} else {
+							// Brutal fallback if a plugin forgets to implement freeze()
+							DOM.editLayer.style.pointerEvents = 'none';
+						}
+
 						UI.showStatus(`⚠️ Edited in another tab. <button onclick="Actions.openFile('${AppState.currentFilename}')">Reload</button>`, true);
 					}
 				}
@@ -1559,29 +1604,8 @@ if (e.key === 'Enter') {
 					}
 				});
 
-				// 3. Editor typing event
-				DOM.editor.addEventListener('input', () => Actions.handleTyping());
-
-				DOM.editor.addEventListener('keydown', function(e) {
-				    if (e.key === 'Tab') {
-				        e.preventDefault(); // Stop focus from moving
-				        
-				        const start = this.selectionStart;
-				        const end = this.selectionEnd;
-				        const indent = "    "; // 4 spaces (or use "\t" for a real tab)
-				        
-				        // Inject the indent
-				        this.value = this.value.substring(0, start) + indent + this.value.substring(end);
-				        
-				        // Move the cursor to right after the injected indent
-				        this.selectionStart = this.selectionEnd = start + indent.length;
-				        
-				        // Trigger the debounced save manually since 'input' event doesn't fire on script-injected text
-				        Actions.handleTyping();
-				    }
-				});
-
-				DOM.viewer.addEventListener('click', (e) => {
+				// 3. View layer link interceptor
+				DOM.viewLayer.addEventListener('click', (e) => {
 					let target = e.target;
 					while (target && target.tagName !== 'A') target = target.parentNode;
 					
@@ -1674,7 +1698,7 @@ if (e.key === 'Enter') {
 
 			document.addEventListener('paste', async (e) => {
 				// Only allow pasting when focusing outside the editor (e.g., the sidebar).
-				if (e.target.id === 'note-content' || e.target.tagName === 'INPUT') return;
+				if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
 
 				const clipboardData = e.clipboardData || window.clipboardData;
 				const items = clipboardData.items;
