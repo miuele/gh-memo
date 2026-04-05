@@ -278,7 +278,22 @@
 					});
 					
 					return textarea;
-				}
+				},
+				// PKCE Helper: Generates a cryptographically random string
+				generateCodeVerifier: () => {
+					const array = new Uint32Array(28);
+					window.crypto.getRandomValues(array);
+					return Array.from(array, dec => ('0' + dec.toString(16)).substr(-2)).join('');
+				},
+				
+				// PKCE Helper: Hashes the verifier into a base64-url encoded challenge
+				generateCodeChallenge: async (verifier) => {
+					const encoder = new TextEncoder();
+					const data = encoder.encode(verifier);
+					const digest = await window.crypto.subtle.digest('SHA-256', data);
+					return btoa(String.fromCharCode(...new Uint8Array(digest)))
+						.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+				},
 			};
 
 			/* =====================================================================
@@ -483,15 +498,20 @@
 
 				async refreshAccessToken() {
 					const { appKey, appSecret, refreshToken } = AppState.config;
+					
+					const payload = new URLSearchParams({
+						refresh_token: refreshToken,
+						grant_type: 'refresh_token',
+						client_id: appKey
+					});
+					
+					// CONDITIONAL: Only append the secret if using the legacy flow
+					if (appSecret) payload.append('client_secret', appSecret);
+
 					const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-						body: new URLSearchParams({
-							refresh_token: refreshToken,
-							grant_type: 'refresh_token',
-							client_id: appKey,
-							client_secret: appSecret
-						})
+						body: payload
 					});
 					if (!res.ok) throw new Error('Refresh failed.');
 					const data = await res.json();
@@ -1019,10 +1039,18 @@
 									<label>App Secret</label>
 									<input type="password" id="cfg-dbx-secret-${id}" value="${c.appSecret || ''}">
 								</div>
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 10px;">
-									<button onclick="Actions.linkDropbox('${id}')">🔗 1. Get Auth Code</button>
-									<button onclick="Actions.exchangeDropboxCode('${id}')" style="background: var(--accent); color: white; border: none;">🔑 2. Link Account</button>
-									<span style="font-size: 12px; color: #666; margin-left: 10px; align-self: center;">
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
+									
+									<span style="font-size: 13px; color: #555;"><strong>Modern Flow (Recommended if Hosted)</strong></span>
+									<button onclick="Actions.linkDropboxPKCE('${id}')" style="background: var(--accent); color: white; border: none; width: max-content;">⚡ Auto-Link via PKCE (No Secret Needed)</button>
+									
+									<span style="font-size: 13px; color: #555; margin-top: 10px;"><strong>Legacy Flow (For Local file://)</strong></span>
+									<div style="display: flex; gap: 10px;">
+										<button onclick="Actions.linkDropbox('${id}')">1. Get Auth Code</button>
+										<button onclick="Actions.exchangeDropboxCode('${id}')">2. Submit Code</button>
+									</div>
+									
+									<span style="font-size: 12px; color: #666; margin-top: 5px;">
 										Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}
 									</span>
 								</div>
@@ -1547,6 +1575,76 @@
 						await plugin.onModeSwitch(AppState.isViewMode);
 					}
 				},
+				async linkDropboxPKCE(id) {
+					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
+					if (!key) return alert("Please enter your App Key first.");
+
+					const verifier = Utils.generateCodeVerifier();
+					const challenge = await Utils.generateCodeChallenge(verifier);
+					
+					sessionStorage.setItem('dbx_pkce_verifier', verifier);
+					sessionStorage.setItem('dbx_pkce_profile_id', id);
+					sessionStorage.setItem('dbx_pkce_client_id', key); // <--- ADD THIS LINE
+
+					const redirectUri = window.location.origin + window.location.pathname;
+					const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&token_access_type=offline&redirect_uri=${encodeURIComponent(redirectUri)}`;
+					window.location.href = authUrl; 
+				},
+
+				async handlePKCERedirect() {
+					const params = new URLSearchParams(window.location.search);
+					const code = params.get('code');
+					const verifier = sessionStorage.getItem('dbx_pkce_verifier');
+					const profileId = sessionStorage.getItem('dbx_pkce_profile_id');
+					const clientId = sessionStorage.getItem('dbx_pkce_client_id'); // <--- PULL IT HERE
+
+					if (!code || !verifier || !profileId || !clientId) return false;
+
+					window.history.replaceState({}, document.title, window.location.pathname);
+					sessionStorage.removeItem('dbx_pkce_verifier');
+					sessionStorage.removeItem('dbx_pkce_profile_id');
+					sessionStorage.removeItem('dbx_pkce_client_id'); // Clean up
+
+					const profile = AppState.profiles[profileId];
+					if (!profile) return false;
+
+					try {
+						const redirectUri = window.location.origin + window.location.pathname;
+						const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+							body: new URLSearchParams({
+								client_id: clientId, // <--- USE IT HERE
+								grant_type: 'authorization_code',
+								code: code,
+								code_verifier: verifier,
+								redirect_uri: redirectUri
+							})
+						});
+
+						const data = await res.json();
+						
+						if (!res.ok) {
+							console.error("DROPBOX API ERROR:", data);
+							throw new Error(data.error_description || data.error || "Unknown Auth Failure");
+						}
+
+						// 4. Save to the profile permanently!
+						profile.config.provider = 'dropbox';
+						profile.config.appKey = clientId; // <--- SAVE IT HERE
+						profile.config.appSecret = ''; 
+						profile.config.token = data.access_token;
+						profile.config.refreshToken = data.refresh_token; 
+						
+						localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+						if (profileId === AppState.activeProfileId) AppState.config = profile.config;
+
+						return true;
+					} catch (err) {
+						alert(`PKCE Linking failed: ${err.message}`);
+						return false;
+					}
+				},
 			};
 
 			/* =====================================================================
@@ -1581,6 +1679,27 @@
 
 				initDOM();
 
+				// --- CATCH DROPBOX PKCE REDIRECT ---
+				Actions.handlePKCERedirect().then((wasRedirect) => {
+					// Hydrate the active context
+					Actions.switchProfile(AppState.activeProfileId);
+
+					if (wasRedirect) {
+						// If we just finished PKCE, open the settings panel to show success
+						Actions.configureGitHub();
+						UI.showStatus("Dropbox linked successfully via PKCE!");
+					} else {
+						// Normal Deep Link Boot Sequence
+						const hash = window.location.hash.substring(1);
+						if (hash) {
+							Actions.openFile(decodeURIComponent(hash), true);
+						} else {
+							UI.resetEditor();
+							UI.renderFileList();
+						}
+					}
+				});
+                
 				// Hydrate the active context BEFORE attempting to load any files
 				Actions.switchProfile(AppState.activeProfileId);
 
