@@ -158,6 +158,66 @@
 			<div id="status-bar"></div>
 		</div>
 
+		<template id="profile-card-template">
+			<div class="profile-card">
+				<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+					<h3 class="profile-title" style="margin: 0;"></h3>
+					<div class="profile-actions" style="display: flex; gap: 8px;">
+						<button class="btn-switch">Switch</button>
+						<button class="btn-clear" style="color: #c98200;">🧹 Clear Data</button>
+						<button class="btn-delete" style="color: var(--danger);">🗑️ Delete</button>
+					</div>
+				</div>
+				<div class="form-grid">
+					<div class="form-group" style="grid-column: 1 / -1;">
+						<label>Storage Provider</label>
+						<select class="cfg-provider" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+							<option value="github">GitHub</option>
+							<option value="dropbox">Dropbox (App Folder)</option>
+						</select>
+					</div>
+					
+					<!-- Dropbox Fields -->
+					<div class="form-group dbx-only" style="display: none;">
+						<label>App Key (Client ID)</label>
+						<input type="text" class="cfg-dbx-key" placeholder="Found in Dropbox App Console">
+					</div>
+					<div class="form-group dbx-only" style="display: none; grid-column: 1 / -1; flex-direction: row; gap: 15px; align-items: center;">
+						<button class="btn-link-dbx" style="background: var(--accent); color: white; border: none; padding: 8px 16px;">
+							⚡ Link Dropbox Account
+						</button>
+						<span class="dbx-status" style="font-size: 13px; color: #666;"></span>
+					</div>
+		
+					<!-- GitHub Fields -->
+					<div class="form-group gh-only">
+						<label>Access Token</label>
+						<input type="password" class="cfg-token" placeholder="ghp_...">
+						<span style="font-size: 12px; color: #c98200; margin-top: 6px; display: block; line-height: 1.4;">
+							⚠️ <strong>Security Warning:</strong> Use a Fine-grained PAT scoped exclusively to the target repository.
+						</span>
+					</div>
+					<div class="form-group gh-only">
+						<label>Host URL</label>
+						<input type="text" class="cfg-host">
+					</div>
+					<div class="form-group gh-only">
+						<label>Owner (Username)</label>
+						<input type="text" class="cfg-owner">
+					</div>
+					<div class="form-group gh-only">
+						<label>Repository Name</label>
+						<input type="text" class="cfg-repo">
+					</div>
+					<div class="form-group gh-only">
+						<label>Branch</label>
+						<input type="text" class="cfg-branch">
+					</div>
+				</div>
+				<button class="btn-save">💾 Save Configuration</button>
+			</div>
+		</template>
+
 		<script>
 			/* =====================================================================
 			   1. CORE STATE & CONFIGURATION
@@ -282,7 +342,7 @@
 				generateCodeVerifier: () => {
 					const array = new Uint32Array(28);
 					window.crypto.getRandomValues(array);
-					return Array.from(array, dec => ('0' + dec.toString(16)).substr(-2)).join('');
+					return Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
 				},
 				
 				// PKCE Helper: Hashes the verifier into a base64-url encoded challenge
@@ -293,7 +353,18 @@
 					return btoa(String.fromCharCode(...new Uint8Array(digest)))
 						.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 				},
+				h: (tag, props, ...children) => {
+				    const el = document.createElement(tag);
+				    for (const key in props) {
+				        if (key.startsWith('on')) el.addEventListener(key.slice(2).toLowerCase(), props[key]);
+				        else el.setAttribute(key, props[key]);
+				    }
+				    children.forEach(c => typeof c === 'string' ? el.appendChild(document.createTextNode(c)) : el.appendChild(c));
+				    return el;
+				},
 			};
+
+			const h = Utils.h;
 
 			/* =====================================================================
 			   4. DATABASE SERVICE (IndexedDB Abstraction)
@@ -629,10 +700,10 @@
 
 							if (content instanceof Blob) {
 								this.objectUrl = URL.createObjectURL(content);
-								this.viewLayer.innerHTML = `
-									<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
-										<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-									</div>`;
+								this.viewLayer.appendChild(
+									h('div', { style: "width: 100%; display: flex; justify-content: center; padding: 20px 0;" },
+										h('img', { src: this.objectUrl, style: "max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" }))
+								);
 							}
 						},
 						unmount: function() {
@@ -640,7 +711,7 @@
 								URL.revokeObjectURL(this.objectUrl);
 								this.objectUrl = null;
 							}
-							this.viewLayer.innerHTML = '';
+							this.viewLayer.replaceChildren();
 						}
 					}),
 				},
@@ -657,7 +728,8 @@
 
 							if (content instanceof Blob) {
 								this.objectUrl = URL.createObjectURL(content);
-								this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+								this.viewLayer.appendChild(
+									h('iframe', { src: this.objectUrl + "#toolbar=0", style: "width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"}));
 							}
 						},
 						unmount: function() {
@@ -665,7 +737,7 @@
 								URL.revokeObjectURL(this.objectUrl);
 								this.objectUrl = null;
 							}
-							this.viewLayer.innerHTML = '';
+							this.viewLayer.replaceChildren();
 						}
 					}),
 				},
@@ -678,13 +750,23 @@
 						UI.showStatus('Loading Markdown engine...', false);
 						await Promise.all([
 							Utils.loadResource('https://cdn.jsdelivr.net/npm/marked/marked.min.js'),
+							Utils.loadResource('https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js'),
 							Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css', 'style'),
 							Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'),
 							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
 							Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
 						]);
 						await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js');
-						marked.use(window.markedKatex({ throwOnError: false, output: 'html' }));
+						marked.use(
+							window.markedKatex({ throwOnError: false, output: 'html' }),
+							{
+								renderer: {
+									image(token) {
+										// Prevent eager fetching by holding the URL in data-src
+										return `<img data-src="${token.href}" alt="${token.text || ''}" title="${token.title || ''}" />`;
+									}
+								}
+							});
 						this.depsLoaded = true;
 						UI.showStatus('Markdown engine loaded.');
 					},
@@ -715,32 +797,41 @@
 
 						renderMarkdown: async function() {
 							await Plugins.Markdown.loadDeps();
-							const template = document.createElement('template');
-							template.innerHTML = marked.parse(this.textarea.value);
-							template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+						
+							const rawHtml = marked.parse(this.textarea.value);
 							
-							const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
-								const src = img.getAttribute('src');
-								if (src && !src.match(/^(http|https|data:)/i)) {
-									// Erase the broken local path immediately
-									img.removeAttribute('src'); 
-									
+							// Must explicitly tell DOMPurify that data-src is a safe attribute
+							const safeFragment = DOMPurify.sanitize(rawHtml, { 
+								RETURN_DOM_FRAGMENT: true,
+								ADD_ATTR: ['data-src'] 
+							});
+						
+							safeFragment.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+							
+							const imgPromises = Array.from(safeFragment.querySelectorAll('img')).map(async (img) => {
+								// Read from our safe data attribute
+								const src = img.getAttribute('data-src'); 
+								if (!src) return;
+						
+								if (!src.match(/^(http|https|data:)/i)) {
+									// Local Image Lookup
 									const file = await DBService.get(Utils.resolvePath(this.filename, src));
 									if (file && file.content instanceof Blob) {
 										const objectUrl = URL.createObjectURL(file.content);
-										img.src = objectUrl;
+										img.src = objectUrl; // Assigning the real src safely
 										img.onload = () => URL.revokeObjectURL(objectUrl); 
 									} else {
 										img.alt = `[Image missing locally: ${src}]`;
 									}
+								} else {
+									// External Web Image: Safe to fetch now
+									img.src = src; 
 								}
 							});
-
-							// Wait for all IndexedDB transactions to finish
+						
 							await Promise.all(imgPromises);
 							
-							this.viewLayer.innerHTML = '';
-							this.viewLayer.appendChild(template.content);
+							this.viewLayer.replaceChildren(safeFragment);
 						},
 
 						freeze: function() {
@@ -796,8 +887,7 @@
 						renderText: async function(filename) {
 							await Plugins.Text.loadDeps();
 							const ext = filename.split('.').pop().toLowerCase();
-							const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-							this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+							this.viewLayer.appendChild(h('pre', {}, h('code', { class: "language-" + ext }, this.textarea.value)));
 							this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 						},
 						freeze: function() {
@@ -820,16 +910,17 @@
 						viewLayer: null,
 						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
 							this.viewLayer = viewLayer;
+							this.viewLayer.appendChild(
+								h('div', { style: "text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;" },
+									h('div', { style: "font-size: 40px; margin-bottom: 15px;" }, "📦"),
+									h('i', {}, "Binary File"),
+									h('span', { style: "font-size: 13px;" }, "This file cannot be previewed, but it can be synced to your cloud provider."),
+									)
+							);
 
-							this.viewLayer.innerHTML = `
-								<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
-									<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
-									<i>Binary File</i><br><br>
-									<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
-								</div>`;
 						},
 						unmount: function() {
-							this.viewLayer.innerHTML = '';
+							this.viewLayer.replaceChildren();
 						}
 					}),
 				}
@@ -849,30 +940,25 @@
 				toggleSidebar() {
 					DOM.sidebar.classList.toggle('collapsed');
 				},
-				showStatus(htmlMsg, isError = false) {
-					DOM.statusBar.innerHTML = htmlMsg;
+				showStatus(html, isError = false) {
+					if (html instanceof Node) {
+						DOM.statusBar.appendChild(html);
+					} else {
+						DOM.statusBar.textContent = String(html);
+					}
 					DOM.statusBar.style.display = 'flex';
 					DOM.statusBar.className = isError ? 'error' : '';
 					if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
 				},
 				renderPins() {
-				    DOM.pinContainer.innerHTML = '';
+				    DOM.pinContainer.replaceChildren();
 				    AppState.pins.forEach(pin => {
-				        const el = document.createElement('span');
-				        el.className = 'pin-tag';
-				        el.onclick = () => Actions.handlePinClick(pin);
-				        
-				        const txt = document.createElement('span');
-				        txt.innerText = pin;
-				        
-				        const rm = document.createElement('span');
-				        rm.className = 'pin-rm';
-				        rm.innerHTML = '&times;';
-				        rm.onclick = (e) => Actions.removePin(pin, e);
-				        
-				        el.appendChild(txt);
-				        el.appendChild(rm);
-				        DOM.pinContainer.appendChild(el);
+						DOM.pinContainer.appendChild(
+							h('span', { class: 'pin-tag', onclick: () => Actions.handlePinClick(pin) },
+								h('span', {}, pin),
+								h('span', { class: 'pin-rm', onclick: e => Actions.removePin(pin, e) }, '&times;'),
+								)
+							);
 				    });
 				},
 				resetEditor() {
@@ -886,12 +972,12 @@
 					}
 
 					// 2. Clear and reset the new agnostic layers
-					DOM.editLayer.innerHTML = '';
-					DOM.viewLayer.innerHTML = '';
+					DOM.editLayer.replaceChildren();
+					DOM.viewLayer.replaceChildren();
 					DOM.editLayer.style.display = 'block';
 					DOM.viewLayer.style.display = 'none';
 					
-					DOM.filenameLabel.innerText = 'No file selected';
+					DOM.filenameLabel.textContent = 'No file selected';
 					DOM.deleteBtn.style.display = 'none';
 					DOM.pullBtn.style.display = 'none';
 					DOM.pushBtn.style.display = 'none';
@@ -901,7 +987,7 @@
 				},
 				async setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
-					DOM.filenameLabel.innerText = filename;
+					DOM.filenameLabel.textContent = filename;
 					DOM.statusBar.style.display = 'none';
 
 					// Reset any previous cross-tab freezes
@@ -930,8 +1016,8 @@
 					DOM.pullBtn.style.display = 'block';
 					DOM.pushBtn.style.display = 'block';
 					DOM.deleteBtn.style.display = 'block';
-					DOM.viewLayer.innerHTML = '';
-					DOM.editLayer.innerHTML = '';
+					DOM.viewLayer.replaceChildren();
+					DOM.editLayer.replaceChildren();
 
 					// 4. PROVIDE SAVE HOOK
 					const saveCallback = (newContent) => Actions.handleTyping(newContent);
@@ -947,7 +1033,7 @@
 					
 					if (plugin.supportedModes.includes('view') && plugin.supportedModes.includes('edit')) {
 						DOM.viewToggle.style.display = 'flex';
-						DOM.viewToggle.innerText = AppState.isViewMode ? '✏️' : '👁️';
+						DOM.viewToggle.textContent = AppState.isViewMode ? '✏️' : '👁️';
 					} else {
 						DOM.viewToggle.style.display = 'none';
 					}
@@ -969,7 +1055,7 @@
 					// 2. If another search started while we were waiting for the DB, abort this one!
 					if (currentRenderId !== AppState.renderId) return;
 
-					DOM.fileList.innerHTML = '';
+					DOM.fileList.replaceChildren();
 					const term = searchTerm.toLowerCase();
 
 					if (term) {
@@ -993,10 +1079,6 @@
 					}
 
 					notes.forEach(note => {
-						const li = document.createElement('li');
-						li.className = 'file-item' + (note.filename === AppState.currentFilename ? ' active' : '');
-						li.onclick = () => Actions.openFile(note.filename);
-
 						let icon = '🟢'; 
 						const isDirty = note.is_dirty;
 						const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
@@ -1005,83 +1087,83 @@
 						else if (isDirty) icon = '🟡';   
 						else if (hasRemoteUpdate) icon = '⬇️';   
 
-						let html = `<span>${icon} ${note.filename}</span>`;
+						const li = h('li', {
+								class: 'file-item' + (note.filename === AppState.currentFilename ? ' active' : ''),
+								onclick: () => Actions.openFile(note.filename)
+							}, h('span', {}, icon + ' ' + note.filename));
+
 						if (deepSearch && note.matchCount) {
-							html += `<span class="match-count">${note.matchCount} match${note.matchCount > 1 ? 'es' : ''}</span>`;
+							li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + note.matchCount > 1 ? 'es' : ''));
 						}
-						li.innerHTML = html;
+
 						DOM.fileList.appendChild(li);
 					});
 				},
 				renderSettings() {
-					let html = `<div class="settings-header">
-						<h2>⚙️ Profiles & Settings</h2>
-						<button onclick="Actions.createProfile()" style="background: var(--accent); color: white; border: none;">+ New Profile</button>
-					</div>`;
-
-					for (const [id, profile] of Object.entries(AppState.profiles)) {
-						const isActive = id === AppState.activeProfileId;
-						const c = profile.config;
-						html += `
-						<div class="profile-card ${isActive ? 'active' : ''}">
-							<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-								<h3 style="margin: 0;">${profile.name} ${isActive ? ' <span style="color:var(--accent); font-size: 14px;">(Active)</span>' : ''}</h3>
-								<div style="display: flex; gap: 8px;">
-									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch</button>` : ''}
-									<button onclick="Actions.clearDB('${id}')" style="color: #c98200;">🧹 Clear Data</button>
-									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">🗑️ Delete</button>
-								</div>
-							</div>
-							<div class="form-grid">
-								<div class="form-group" style="grid-column: 1 / -1;">
-									<label>Storage Provider</label>
-									<select id="cfg-provider-${id}" onchange="UI.toggleProviderFields('${id}')" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
-										<option value="github" ${c.provider !== 'dropbox' ? 'selected' : ''}>GitHub</option>
-										<option value="dropbox" ${c.provider === 'dropbox' ? 'selected' : ''}>Dropbox (App Folder)</option>
-									</select>
-								</div>
-								
-								<!-- Dropbox Only Fields -->
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
-									<label>App Key (Client ID)</label>
-									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}" placeholder="Found in Dropbox App Console">
-								</div>
-								
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 15px; align-items: center;">
-									<button onclick="Actions.linkDropboxPKCE('${id}')" style="background: var(--accent); color: white; border: none; padding: 8px 16px;">
-										⚡ Link Dropbox Account
-									</button>
-									<span style="font-size: 13px; color: #666;">
-										Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}
-									</span>
-								</div>
-
-								<!-- GitHub Only Fields -->
-								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
-									<label>Access Token</label>
-									<input type="password" id="cfg-token-${id}" value="${c.token}" placeholder="ghp_...">
-								</div>
-								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
-									<label>Host URL</label>
-									<input type="text" id="cfg-host-${id}" value="${c.host}">
-								</div>
-								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
-									<label>Owner (Username)</label>
-									<input type="text" id="cfg-owner-${id}" value="${c.owner}">
-								</div>
-								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
-									<label>Repository Name</label>
-									<input type="text" id="cfg-repo-${id}" value="${c.repo}">
-								</div>
-								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
-									<label>Branch</label>
-									<input type="text" id="cfg-branch-${id}" value="${c.branch}">
-								</div>
-							</div>
-							<button onclick="Actions.updateProfileConfig('${id}')">💾 Save Configuration</button>
-						</div>`;
-					}
-					DOM.settingsPanel.innerHTML = html;
+				    // 1. Clear panel and build header securely
+				    DOM.settingsPanel.replaceChildren(
+				        h('div', { class: 'settings-header' },
+				            h('h2', {}, '⚙️ Profiles & Settings'),
+				            h('button', { 
+				                onclick: () => Actions.createProfile(), 
+				                style: 'background: var(--accent); color: white; border: none;' 
+				            }, '+ New Profile')
+				        )
+				    );
+				
+				    const template = document.getElementById('profile-card-template');
+				
+				    for (const [id, profile] of Object.entries(AppState.profiles)) {
+				        const isActive = id === AppState.activeProfileId;
+				        const c = profile.config;
+				        
+				        const clone = template.content.cloneNode(true);
+				        const card = clone.querySelector('.profile-card');
+				
+				        if (isActive) card.classList.add('active');
+				
+				        // 2. Build the title
+				        const titleEl = card.querySelector('.profile-title');
+				        titleEl.textContent = profile.name;
+				        if (isActive) {
+				            titleEl.appendChild(h('span', { style: 'color:var(--accent); font-size: 14px;' }, ' (Active)'));
+				        }
+				
+				        // 3. Map generic inputs and apply dynamic IDs
+				        const fields = ['provider', 'token', 'host', 'owner', 'repo', 'branch'];
+				        fields.forEach(f => {
+				            const el = card.querySelector(`.cfg-${f}`);
+				            el.id = `cfg-${f}-${id}`;
+				            el.value = c[f] || (f === 'provider' ? 'github' : (f === 'branch' ? 'main' : ''));
+				        });
+				
+				        // 4. Handle Dropbox-specific fields securely
+				        const dbxKeyEl = card.querySelector('.cfg-dbx-key');
+				        dbxKeyEl.id = `cfg-dbx-key-${id}`;
+				        dbxKeyEl.value = c.appKey || '';
+				        card.querySelector('.dbx-status').textContent = `Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}`;
+				
+				        // 5. Visibility toggle logic
+				        const toggleVisibility = () => {
+				            const isDbx = card.querySelector('.cfg-provider').value === 'dropbox';
+				            card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
+				            card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
+				        };
+				        card.querySelector('.cfg-provider').addEventListener('change', toggleVisibility);
+				        toggleVisibility();
+				
+				        // 6. Event listener binding
+				        const btnSwitch = card.querySelector('.btn-switch');
+				        if (isActive) btnSwitch.remove();
+				        else btnSwitch.addEventListener('click', () => { Actions.switchProfile(id); UI.renderSettings(); });
+				        
+				        card.querySelector('.btn-clear').addEventListener('click', () => Actions.clearDB(id));
+				        card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteProfile(id));
+				        card.querySelector('.btn-link-dbx').addEventListener('click', () => Actions.linkDropboxPKCE(id));
+				        card.querySelector('.btn-save').addEventListener('click', () => Actions.updateProfileConfig(id));
+				
+				        DOM.settingsPanel.appendChild(card);
+				    }
 				},
 				toggleProviderFields(id) {
 					const provider = document.getElementById(`cfg-provider-${id}`).value;
@@ -1110,7 +1192,7 @@
 						name: name,
 						dbName: 'NotesDB_' + id, 
 						config: { 
-							provider: 'github', // <--- New Field
+							provider: 'github',
 							host: 'https://api.github.com', 
 							token: '', 
 							owner: '', 
@@ -1160,7 +1242,7 @@
 					AppState.currentFilename = null;
 					history.replaceState(null, null, window.location.pathname);
 					
-					DOM.filenameLabel.innerText = '⚙️ Settings & Profiles';
+					DOM.filenameLabel.textContent = '⚙️ Settings & Profiles';
 					
 					// FIX: Hide the new agnostic layers instead of the old editor
 					DOM.editLayer.style.display = 'none';
@@ -1422,7 +1504,7 @@
 									if (typeof Diff !== 'undefined') {
 										let merged = "";
 										Diff.diffLines(remoteContent, localNote.content).forEach(p => {
-											if (p.added) merged += `<<<<<<< LOCAL\n${p.value}=======\n`;
+											if (p.added) merged += `<<<<<<< LOCAL\n${p.value}\n=======\n`;
 											else if (p.removed) merged += `${p.value}>>>>>>> REMOTE\n`;
 											else merged += p.value;
 										});
@@ -1790,7 +1872,6 @@ if (e.key === 'Enter') {
 				for (let i = 0; i < items.length; i++) {
 					const item = items[i];
 
-					console.log(item);
 					if (item.type.indexOf('image') !== -1) {
 						e.preventDefault(); 
 						
