@@ -317,7 +317,12 @@ const Actions = {
 						localNote.content = remoteContent;
 						localNote.is_dirty = false;
 					} else {
-						UI.showStatus(`Injecting merge markers...`, true);
+						try {
+							await Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js");
+						} catch (err) {
+							UI.showStatus(`Failed to load jsdiff.`, true);
+						}
+
 						if (typeof Diff !== 'undefined') {
 							let merged = "";
 							Diff.diffLines(remoteContent, localNote.content).forEach(p => {

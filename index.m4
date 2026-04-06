@@ -32,8 +32,6 @@ m4_define([[PLUGIN]], [[m4_include([[plugins/$1.js]])]])
 
 		<title>Local-First Notes</title>
 
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
-
 		<style>
 			LOAD_CSS([[styles]])
 		</style>

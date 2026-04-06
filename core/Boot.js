@@ -1,3 +1,28 @@
+AppState.syncChannel.onmessage = (event) => {
+	if (event.data.type === 'SIDEBAR_REFRESH') UI.renderFileList();
+
+	if (event.data.type === 'LOCAL_EDIT' && AppState.currentFilename === event.data.filename) {
+		if (!AppState.isFrozen) {
+			AppState.isFrozen = true;
+
+			// 1. Core locks global Chrome
+			DOM.pullBtn.disabled = true;
+			DOM.pushBtn.disabled = true;
+			DOM.editLayer.style.opacity = '0.6';
+
+			// 2. Plugin locks its specific inputs
+			if (AppState.activePlugin && AppState.activePlugin.freeze) {
+				AppState.activePlugin.freeze();
+			} else {
+				// Brutal fallback if a plugin forgets to implement freeze()
+				DOM.editLayer.style.pointerEvents = 'none';
+			}
+
+			UI.showStatus(`⚠️ Edited in another tab.`, true);
+		}
+	}
+};
+
 window.onload = () => {
 
 	initDOM();
@@ -72,7 +97,7 @@ window.onload = () => {
 						if (candidates.length === 1) {
 							finalPath = candidates[0];
 							note = await DBService.get(finalPath);
-							UI.showStatus(`Rerouted: ${target.filename} &rarr; ${Utils.parsePath(finalPath).filename}`);
+							UI.showStatus(`Rerouted: ${target.filename} \u2192 ${Utils.parsePath(finalPath).filename}`);
 						}
 					}
 

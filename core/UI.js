@@ -2,12 +2,8 @@ const UI = {
 	toggleSidebar() {
 		DOM.sidebar.classList.toggle('collapsed');
 	},
-	showStatus(html, isError = false) {
-		if (html instanceof Node) {
-			DOM.statusBar.replaceChildren(html);
-		} else {
-			DOM.statusBar.textContent = String(html);
-		}
+	showStatus(text, isError = false) {
+		DOM.statusBar.textContent = text;
 		DOM.statusBar.style.display = 'flex';
 		DOM.statusBar.className = isError ? 'error' : '';
 		if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
@@ -18,7 +14,7 @@ const UI = {
 			DOM.pinContainer.appendChild(
 				h('span', { class: 'pin-tag', onclick: () => Actions.handlePinClick(pin) },
 					h('span', {}, pin),
-					h('span', { class: 'pin-rm', onclick: e => Actions.removePin(pin, e) }, '&times;'),
+					h('span', { class: 'pin-rm', onclick: e => Actions.removePin(pin, e) }, '\u00D7'),
 				)
 			);
 		});

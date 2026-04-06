@@ -199,7 +199,7 @@ Text: {
 			renderText: async function(filename) {
 				await Plugins.Text.loadDeps();
 				const ext = filename.split('.').pop().toLowerCase();
-				this.viewLayer.appendChild(h('pre', {}, h('code', { class: "language-" + ext }, this.textarea.value)));
+				this.viewLayer.replaceChildren(h('pre', {}, h('code', { class: "language-" + ext }, this.textarea.value)));
 				this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 			},
 			freeze: function() {
