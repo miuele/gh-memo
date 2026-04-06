@@ -20,7 +20,7 @@ const Actions = {
 
 		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
 		this.switchProfile(id);
-		this.configureGitHub(); // Prompt for settings immediately
+		this.openSettings(); // Prompt for settings immediately
 	},
 
 	switchProfile(profileId) {
@@ -53,7 +53,7 @@ const Actions = {
 		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
 	},
 
-	configureGitHub() {
+	openSettings() {
 		UI.resetEditor();
 		AppState.currentFilename = null;
 		history.replaceState(null, null, window.location.pathname);
@@ -113,7 +113,7 @@ const Actions = {
 			// Fallback to the first available profile if we deleted the active one
 			const fallbackId = Object.keys(AppState.profiles)[0];
 			this.switchProfile(fallbackId);
-			this.configureGitHub(); // Re-open settings to show the updated list
+			this.openSettings(); // Re-open settings to show the updated list
 		} else {
 			// We deleted a background profile, just re-render the list
 			UI.renderSettings();

@@ -45,7 +45,7 @@ m4_define([[PLUGIN]], [[m4_include([[plugins/$1.js]])]])
 				<button onclick="Actions.createFile()">+ New</button>
 				<button onclick="DOM.fileInput.click()">📤 Upload</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
-				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
+				<button onclick="Actions.openSettings()">⚙️ Setup</button>
     			<button onclick="Actions.addPin()">📌 Pin</button>
 				<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>

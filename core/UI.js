@@ -4,7 +4,7 @@ const UI = {
 	},
 	showStatus(html, isError = false) {
 		if (html instanceof Node) {
-			DOM.statusBar.appendChild(html);
+			DOM.statusBar.replaceChildren(html);
 		} else {
 			DOM.statusBar.textContent = String(html);
 		}
@@ -155,7 +155,7 @@ const UI = {
 			}, h('span', {}, icon + ' ' + note.filename));
 
 			if (deepSearch && note.matchCount) {
-				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + note.matchCount > 1 ? 'es' : ''));
+				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + (note.matchCount > 1 ? 'es' : '')));
 			}
 
 			DOM.fileList.appendChild(li);
@@ -225,18 +225,6 @@ const UI = {
 			card.querySelector('.btn-save').addEventListener('click', () => Actions.updateProfileConfig(id));
 
 			DOM.settingsPanel.appendChild(card);
-		}
-	},
-	toggleProviderFields(id) {
-		const provider = document.getElementById(`cfg-provider-${id}`).value;
-		const dbxFields = document.querySelectorAll(`.dbx-only-${id}`);
-		const ghFields = document.querySelectorAll(`.gh-only-${id}`);
-		if (provider === 'dropbox') {
-			dbxFields.forEach(el => el.style.display = 'flex');
-			ghFields.forEach(el => el.style.display = 'none');
-		} else {
-			dbxFields.forEach(el => el.style.display = 'none');
-			ghFields.forEach(el => el.style.display = 'flex');
 		}
 	},
 };

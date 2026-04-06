@@ -182,6 +182,7 @@ const DropboxService = {
 		if (url.includes('/download')) delete headers['Content-Type'];
 
 		initOptions.headers = headers;
+		initOptions.cache = 'no-store';
 		let res = await fetch(url, initOptions);
 
 		if (res.status === 401 && AppState.config.refreshToken) {
@@ -201,6 +202,7 @@ const DropboxService = {
 		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			cache: 'no-store',
 			body: new URLSearchParams({
 				refresh_token: refreshToken,
 				grant_type: 'refresh_token',

@@ -9,7 +9,7 @@ window.onload = () => {
 
 		if (wasRedirect) {
 			// If we just finished PKCE, open the settings panel to show success
-			Actions.configureGitHub();
+			Actions.openSettings();
 			UI.showStatus("Dropbox linked successfully via PKCE!");
 		} else {
 			// Normal Deep Link Boot Sequence
@@ -22,20 +22,6 @@ window.onload = () => {
 			}
 		}
 	});
-
-	// Hydrate the active context BEFORE attempting to load any files
-	Actions.switchProfile(AppState.activeProfileId);
-
-	// 1. Deep Link Boot Sequence
-	const hash = window.location.hash.substring(1);
-	if (hash) {
-		// Boot directly into the requested file
-		Actions.openFile(decodeURIComponent(hash), true);
-	} else {
-		// Boot into the empty state
-		UI.resetEditor();
-		UI.renderFileList();
-	}
 
 	// 2. Wire up search bar events locally
 	DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
@@ -139,6 +125,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('paste', async (e) => {
+	// Allow paste when focus is on the sidebar
 	if (e.target.tagName === 'INPUT' || !e.target.closest('#sidebar')) {
 		return; 
 	}
