@@ -1,20 +1,27 @@
 const AppState = {
-	renderId: 0,
-	// 1. The Master Directory
-	profiles: JSON.parse(localStorage.getItem('notes_profiles') || '{}'),
-	activeProfileId: localStorage.getItem('notes_active_profile') || null,
-
-	// 2. The Current Context (Hydrated on boot)
-	config: { host: '', token: '', owner: '', repo: '', branch: '' },
-	pins: [],
-
-	// UI State
-	isViewMode: false,
-	currentFilename: null,
-	typingTimer: null,
-	activePlugin: null,
-	isFrozen: false,
-	syncChannel: new BroadcastChannel('github_notes_sync')
+    renderId: 0,
+    
+    // Tier 1: The Credentials
+    keychains: JSON.parse(localStorage.getItem('notes_keychains') || '{}'),
+    
+    // Tier 2: The Mount Points
+    workspaces: JSON.parse(localStorage.getItem('notes_workspaces') || '{}'),
+    activeWorkspaceId: localStorage.getItem('notes_active_workspace') || null,
+    
+    // Context Helpers (Dynamically resolved, never duplicated)
+    get activeWorkspace() { return this.workspaces[this.activeWorkspaceId] || null; },
+    get activeKeychain() { 
+        return this.activeWorkspace ? this.keychains[this.activeWorkspace.keychainId] : null; 
+    },
+    
+    pins: [],
+    isViewMode: false,
+    currentFilename: null,
+    typingTimer: null,
+    activePlugin: null,
+    isFrozen: false,
+    syncChannel: new BroadcastChannel('github_notes_sync'),
+	isSymlinkEditMode: false,
 };
 
 const DOM = {};
@@ -34,5 +41,6 @@ function initDOM() {
 	DOM.statusBar = document.getElementById('status-bar');
 	DOM.viewToggle = document.getElementById('view-toggle');
 	DOM.settingsPanel = document.getElementById('settings-panel');
+	DOM.workspaceIndicator = document.getElementById('workspace-indicator');
 }
 

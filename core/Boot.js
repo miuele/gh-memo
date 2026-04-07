@@ -23,107 +23,111 @@ AppState.syncChannel.onmessage = (event) => {
 	}
 };
 
-window.onload = () => {
+window.addEventListener('DOMContentLoaded', async () => {
+    // 1. Capture the DOM nodes
+    initDOM();
 
-	initDOM();
+    // 2. Heal the state if it's a first-time load (or orphaned)
+    Actions.ensureDefaultState();
+    
+    // 3. Render the UI safely using the active workspace
+	UI.updateWorkspaceIndicator();
+    UI.renderFileList();
+    UI.renderPins();
+    
+    // 4. Handle OAuth redirects if necessary
+    await Actions.handlePKCERedirect();
 
-	// --- CATCH DROPBOX PKCE REDIRECT ---
-	Actions.handlePKCERedirect().then((wasRedirect) => {
-		// Hydrate the active context
-		Actions.switchProfile(AppState.activeProfileId);
+    // 5. Wire up local DOM event listeners
+    DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
+    DOM.searchBar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            UI.renderFileList(DOM.searchBar.value, true);
+        }
+    });
 
-		if (wasRedirect) {
-			// If we just finished PKCE, open the settings panel to show success
-			Actions.openSettings();
-			UI.showStatus("Dropbox linked successfully via PKCE!");
-		} else {
-			// Normal Deep Link Boot Sequence
-			const hash = window.location.hash.substring(1);
-			if (hash) {
-				Actions.openFile(decodeURIComponent(hash), true);
-			} else {
-				UI.resetEditor();
-				UI.renderFileList();
-			}
-		}
-	});
+    // 6. Wire up the View Layer link interceptor (Hypermedia routing)
+    DOM.viewLayer.addEventListener('click', (e) => {
+        let target = e.target;
+        while (target && target.tagName !== 'A') target = target.parentNode;
 
-	// 2. Wire up search bar events locally
-	DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
-	DOM.searchBar.addEventListener('keydown', (e) => {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			UI.renderFileList(DOM.searchBar.value, true);
-		}
-	});
+        if (target && target.tagName === 'A') {
+            const href = target.getAttribute('href');
 
-	// 3. View layer link interceptor
-	DOM.viewLayer.addEventListener('click', (e) => {
-		let target = e.target;
-		while (target && target.tagName !== 'A') target = target.parentNode;
+            if (href && !href.match(/^(http|https|mailto:|data:|#)/i)) {
+                e.preventDefault(); 
+                
+                const pathWithoutHash = href.split('#')[0];
+                const targetPath = Utils.resolvePath(AppState.currentFilename, pathWithoutHash);
 
-		if (target && target.tagName === 'A') {
-			const href = target.getAttribute('href');
+                DOM.searchBar.value = ''; 
 
-			if (href && !href.match(/^(http|https|mailto:|data:|#)/i)) {
-				e.preventDefault(); 
+                (async () => {
+                    let finalPath = targetPath;
+                    let note = await DBService.get(finalPath);
 
-				// mdbook links often include anchors (e.g., chapter.html#section-1)
-				// We must strip the hash before looking up the actual filename
-				const pathWithoutHash = href.split('#')[0];
-				const targetPath = Utils.resolvePath(AppState.currentFilename, pathWithoutHash);
+                    // Fuzzy routing fallback
+                    if (!note) {
+                        const allKeys = await DBService.getAllKeys();
+                        const target = Utils.parsePath(targetPath);
+                        const candidates = allKeys.filter(key => {
+                            const k = Utils.parsePath(key);
+                            return k.dir === target.dir && k.basename === target.basename && key !== targetPath;
+                        });
 
-				// Clear the search bar so we don't accidentally filter the tree
-				DOM.searchBar.value = ''; 
+                        if (candidates.length === 1) {
+                            finalPath = candidates[0];
+                            note = await DBService.get(finalPath);
+                            UI.showStatus(`Rerouted: ${target.filename} \u2192 ${Utils.parsePath(finalPath).filename}`);
+                        }
+                    }
 
-				(async () => {
-					let finalPath = targetPath;
-					let note = await DBService.get(finalPath);
+                    if (note) {
+                        Actions.openFile(finalPath);
+                    } else {
+                        UI.showStatus(`The file "${targetPath}" does not exist locally.`, true);
+                    }
+                })();
+            }
+        }
+    });
+    
+    // 7. Check if there is a file hash in the URL to open on boot
+    const hash = window.location.hash.substring(1);
+    if (hash) {
+        Actions.openFile(decodeURIComponent(hash), true);
+    }
+});
 
-					if (!note) {
-						// 1. Fetch all known filenames (fast, keys only)
-						const allKeys = await DBService.getAllKeys();
+window.addEventListener('popstate', (e) => {
+    const state = e.state;
 
-						// 2. Parse the target path using our utility
-						const target = Utils.parsePath(targetPath);
+    // Route A: Rich Session Navigation (The user clicked Back/Forward)
+    if (state && state.workspaceId) {
+        // 1. If the history entry belongs to a different workspace, swap environments safely
+        if (state.workspaceId !== AppState.activeWorkspaceId) {
+            Actions.switchWorkspace(state.workspaceId, true); // true = skipHistory
+        }
+        
+        // 2. Restore the specific file view, or reset to the root tree
+        if (state.filename) {
+            Actions.openFile(state.filename, true);
+        } else {
+            UI.resetEditor();
+            UI.renderFileList(DOM.searchBar.value, false);
+        }
+        return;
+    }
 
-						// 3. Find files in the SAME directory with the SAME basename
-						const candidates = allKeys.filter(key => {
-							const k = Utils.parsePath(key);
-							return k.dir === target.dir && k.basename === target.basename && key !== targetPath;
-						});
-
-						// 4. Resolve routing IF AND ONLY IF there is exactly one match
-						if (candidates.length === 1) {
-							finalPath = candidates[0];
-							note = await DBService.get(finalPath);
-							UI.showStatus(`Rerouted: ${target.filename} \u2192 ${Utils.parsePath(finalPath).filename}`);
-						}
-					}
-
-					if (note) {
-						Actions.openFile(finalPath);
-					} else {
-						UI.showStatus(`The file "${targetPath}" does not exist locally.`, true);
-					}
-				})();
-			}
-		}
-	});
-};
-
-window.addEventListener('popstate', () => {
-	// Read the hash from the URL (removing the # symbol)
-	const hash = window.location.hash.substring(1);
-
-	if (hash) {
-		// The user navigated Back/Forward to a specific file
-		Actions.openFile(decodeURIComponent(hash), true); // true = skip pushing state again
-	} else {
-		// The URL hash is empty. The user navigated Back to the root list.
-		UI.resetEditor();
-		UI.renderFileList(DOM.searchBar.value, false);
-	}
+    // Route B: Cold Boot / Manual Hash Edit (No state object available)
+    const hash = window.location.hash.substring(1);
+    if (hash) {
+        Actions.openFile(decodeURIComponent(hash), true);
+    } else {
+        UI.resetEditor();
+        UI.renderFileList(DOM.searchBar.value, false);
+    }
 });
 
 window.addEventListener('offline', () => UI.showStatus('📴 You are offline. Changes will save locally.', true));

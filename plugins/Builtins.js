@@ -160,7 +160,7 @@ Markdown: {
 },
 
 Text: {
-	canHandle: (fn) => Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || ''),
+	canHandle: (fn) => (Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || '')) || /\.symlink$/i.test(fn || ''),
 		depsLoaded: false,
 
 		loadDeps: async function() {

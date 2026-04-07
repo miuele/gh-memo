@@ -1,56 +1,123 @@
 const Actions = {
-	createProfile(name) {
-		if (!name) name = prompt('Enter profile name (e.g., Personal, Work, Local Server):');
+	// =====================================================================
+	// KEYCHAIN MANAGEMENT
+	// =====================================================================
+	createKeychain() {
+		const name = prompt('Enter keychain name (e.g., Personal GitHub, Work Dropbox):');
 		if (!name) return;
 
-		const id = 'profile_' + Date.now();
-		AppState.profiles[id] = {
+		const id = 'kc_' + Date.now();
+		AppState.keychains[id] = {
+			name: name,
+			provider: 'github', // default
+			token: '',
+			appKey: '',
+			refreshToken: ''
+		};
+
+		localStorage.setItem('notes_keychains', JSON.stringify(AppState.keychains));
+		UI.renderSettings();
+	},
+
+	deleteKeychain(id) {
+		// Prevent deletion if workspaces are relying on it
+		const inUse = Object.values(AppState.workspaces).some(ws => ws.keychainId === id);
+		if (inUse) return alert("Cannot delete: This keychain is currently linked to a workspace.");
+
+		if (!confirm(`Delete keychain "${AppState.keychains[id].name}"?`)) return;
+
+		delete AppState.keychains[id];
+		localStorage.setItem('notes_keychains', JSON.stringify(AppState.keychains));
+		UI.renderSettings();
+	},
+
+	// =====================================================================
+	// WORKSPACE MANAGEMENT
+	// =====================================================================
+	createWorkspace() {
+		const name = prompt('Enter workspace name (e.g., Docs, Frontend src):');
+		if (!name) return;
+
+		const kcIds = Object.keys(AppState.keychains);
+		if (kcIds.length === 0) return alert("Please create a Keychain first.");
+
+		const id = 'ws_' + Date.now();
+		AppState.workspaces[id] = {
 			name: name,
 			dbName: 'NotesDB_' + id, 
-			config: { 
-				provider: 'github',
-				host: 'https://api.github.com', 
-				token: '', 
-				owner: '', 
-				repo: '', 
-				branch: 'main' 
-			},
+			keychainId: kcIds[0], // Default to the first available keychain
+			host: 'https://api.github.com', 
+			owner: '', 
+			repo: '', 
+			branch: 'main',
+			rootDir: '',      // e.g., 'src/docs'
+			shallow: false,   // false = recursive IDE view, true = folder exploration
 			pins: []
 		};
 
-		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-		this.switchProfile(id);
-		this.openSettings(); // Prompt for settings immediately
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+		this.switchWorkspace(id);
+		this.openSettings();
 	},
 
-	switchProfile(profileId) {
-		if (!AppState.profiles[profileId]) return;
+	switchWorkspace(id, skipHistory = false) {
+		const ws = AppState.workspaces[id];
+		if (!ws) return;
 
-		// 1. Update Master State
-		AppState.activeProfileId = profileId;
-		localStorage.setItem('notes_active_profile', profileId);
+		AppState.activeWorkspaceId = id;
+		localStorage.setItem('notes_active_workspace', id);
 
-		// 2. Hydrate Context
-		const profile = AppState.profiles[profileId];
-		AppState.config = profile.config;
-		AppState.pins = profile.pins || [];
+		if (!ws.pins) ws.pins = [];
+		AppState.pins = ws.pins;
 
-		// 3. Brutally reset the UI to prevent data bleeding
 		UI.resetEditor();
 		DOM.searchBar.value = '';
-		history.replaceState(null, null, window.location.pathname); 
 
-		// 4. Boot the new environment
+		// History API Upgrade: Push the workspace switch into the session history
+		if (!skipHistory) {
+			history.pushState(
+				{ workspaceId: id, filename: null }, 
+				null, 
+				window.location.pathname
+			);
+		} 
+
 		UI.renderPins();
+		UI.updateWorkspaceIndicator();
 		UI.renderFileList();
-		UI.showStatus(`Switched to profile: ${profile.name}`);
+		UI.showStatus(`Switched workspace: ${AppState.workspaces[id].name}`);
 	},
 
-	saveProfile() {
-		if (!AppState.activeProfileId) return;
-		AppState.profiles[AppState.activeProfileId].config = AppState.config;
-		AppState.profiles[AppState.activeProfileId].pins = AppState.pins;
-		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+	deleteWorkspace(id) {
+		if (Object.keys(AppState.workspaces).length <= 1) return alert("You cannot delete your only workspace.");
+		
+		const wsName = AppState.workspaces[id].name;
+		const dbName = AppState.workspaces[id].dbName;
+		
+		if (!confirm(`WARNING: Permanently delete workspace "${wsName}" AND wipe all its local data?\n\nThis action cannot be undone.`)) return;
+
+		// 1. Purge the isolated database directly from the browser's storage
+		indexedDB.deleteDatabase(dbName);
+
+		// 2. Remove the workspace from memory
+		delete AppState.workspaces[id];
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+
+		// 3. UI Routing
+		if (AppState.activeWorkspaceId === id) {
+			const fallbackId = Object.keys(AppState.workspaces)[0];
+			this.switchWorkspace(fallbackId);
+			this.openSettings(); 
+		} else {
+			UI.renderSettings();
+		}
+	},
+
+	saveSettings() {
+		// Save both state arrays simultaneously
+		localStorage.setItem('notes_keychains', JSON.stringify(AppState.keychains));
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+		UI.showStatus('Configuration saved.');
 	},
 
 	openSettings() {
@@ -60,7 +127,6 @@ const Actions = {
 
 		DOM.filenameLabel.textContent = '⚙️ Settings & Profiles';
 
-		// FIX: Hide the new agnostic layers instead of the old editor
 		DOM.editLayer.style.display = 'none';
 		DOM.viewLayer.style.display = 'none';
 
@@ -70,66 +136,67 @@ const Actions = {
 		if (window.innerWidth < 768) DOM.sidebar.classList.add('collapsed');
 	},
 
-	// Add these two new functions:
-	updateProfileConfig(id) {
-		if (!AppState.profiles[id]) return;
-		const c = AppState.profiles[id].config;
-
-		c.provider = document.getElementById(`cfg-provider-${id}`).value; // Capture Provider
-		c.host = document.getElementById(`cfg-host-${id}`).value.trim();
-		c.owner = document.getElementById(`cfg-owner-${id}`).value.trim();
-		c.repo = document.getElementById(`cfg-repo-${id}`).value.trim();
-		c.branch = document.getElementById(`cfg-branch-${id}`).value.trim();
-
-		// Only overwrite the token manually if GitHub is the active provider.
-		// Dropbox manages its own token via the OAuth handshake.
-		if (c.provider === 'github') {
-			c.token = document.getElementById(`cfg-token-${id}`).value.trim();
-		}
-
-		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-
-		if (id === AppState.activeProfileId) AppState.config = c;
-		UI.showStatus(`Saved config for ${AppState.profiles[id].name}`);
-	},
-
-	deleteProfile(id) {
-		if (Object.keys(AppState.profiles).length <= 1) return alert("You cannot delete your only profile.");
-
-		const profileName = AppState.profiles[id].name;
-		const dbName = AppState.profiles[id].dbName;
-
-		if (!confirm(`WARNING: Permanently delete profile "${profileName}" AND wipe all its local data?\n\nThis action cannot be undone.`)) return;
-
-		// 1. Purge the isolated database directly from the browser's storage
-		indexedDB.deleteDatabase(dbName);
-
-		// 2. Remove the profile from memory
-		delete AppState.profiles[id];
-		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-
-		// 3. UI Routing
-		if (AppState.activeProfileId === id) {
-			// Fallback to the first available profile if we deleted the active one
-			const fallbackId = Object.keys(AppState.profiles)[0];
-			this.switchProfile(fallbackId);
-			this.openSettings(); // Re-open settings to show the updated list
-		} else {
-			// We deleted a background profile, just re-render the list
-			UI.renderSettings();
-		}
-	},
-
+	// =====================================================================
+	// FILE EDITOR OPERATIONS
+	// =====================================================================
 	async openFile(filename, skipHistory = false) {
 		const note = await DBService.get(filename);
 		if (!note) return;
 
-		// Push to the browser's History API
+		// --- THE SYMLINK INTERCEPTOR ---
+		if (filename.endsWith('.symlink') && !AppState.isSymlinkEditMode) {
+			try {
+				const payload = JSON.parse(note.content || '{}');
+
+				// Define which fields are actually valid for routing
+				const matchableFields = ['provider', 'host', 'owner', 'repo', 'branch', 'rootDir'];
+				const payloadKeys = Object.keys(payload).filter(k => matchableFields.includes(k));
+
+				if (payloadKeys.length === 0) {
+					return UI.showStatus(`⚠️ Error: Symlink contains no valid routing fields.`, true);
+				}
+
+				// Gather all workspaces that match every field provided in the payload
+				const matchedIds = Object.keys(AppState.workspaces).filter(id => {
+					const ws = AppState.workspaces[id];
+
+					return payloadKeys.every(key => {
+						// Special normalization for rootDir
+						if (key === 'rootDir') {
+							const wsRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+							const targetRoot = (payload.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+							return wsRoot === targetRoot;
+						}
+						// Strict equality for all other provided fields
+						return ws[key] === payload[key];
+					});
+				});
+
+				// Evaluate the match results
+				if (matchedIds.length === 1) {
+					this.switchWorkspace(matchedIds[0]); // Teleport!
+					return; 
+				} else if (matchedIds.length > 1) {
+					return UI.showStatus(`❌ Ambiguous symlink: Matches ${matchedIds.length} workspaces. Be more specific.`, true);
+				} else {
+					return UI.showStatus(`❌ Target workspace not found locally.`, true);
+				}
+
+			} catch (err) {
+				return UI.showStatus(`⚠️ Error: Malformed symlink JSON.`, true);
+			}
+		}
+		// -------------------------------
+
+		// Standard Editor Boot Sequence
 		if (!skipHistory) {
-			history.pushState(null, null, '#' + encodeURIComponent(filename));
+		    history.pushState(
+		        { workspaceId: AppState.activeWorkspaceId, filename: filename }, 
+		        null, 
+		        '#' + encodeURIComponent(filename)
+		    );
 		}
 
-		// If we are on a mobile device (screen width < 768px), auto-collapse the sidebar
 		if (window.innerWidth < 768) {
 			DOM.sidebar.classList.add('collapsed');
 		}
@@ -156,7 +223,6 @@ const Actions = {
 
 		event.target.value = '';
 
-		// Hard limit to protect browser memory and API limits
 		if (file.size > SyncService.fileUploadSizeLimit()) {
 			return UI.showStatus('File is too large.', true);
 		}
@@ -167,12 +233,10 @@ const Actions = {
 		const existing = await DBService.get(filename);
 		if (existing && !confirm(`Overwrite existing local file "${filename}"?`)) return;
 
-		// FIX: Treat anything that isn't explicitly text as a binary Blob
 		const isText = Utils.isTextFile(filename);
 		let content;
 
 		if (!isText) {
-			// Fallback to octet-stream for generic unknown files
 			content = new Blob([file], { type: file.type || 'application/octet-stream' });
 		} else {
 			content = await file.text();
@@ -197,8 +261,8 @@ const Actions = {
 
 		AppState.typingTimer = setTimeout(async () => {
 			const note = await DBService.get(AppState.currentFilename);
-			if (note) {
-				note.content = newContent; // <--- Uses the passed value
+			if (note && note.content !== newContent) {
+				note.content = newContent; 
 				note.is_dirty = true;
 				await DBService.put(note);
 
@@ -208,25 +272,36 @@ const Actions = {
 		}, 500); 
 	},
 
-	async clearDB(id) {
-		const profile = AppState.profiles[id];
-		if (!profile) return;
+	async toggleViewMode() {
+		const plugin = AppState.activePlugin;
+		if (!plugin || !plugin.supportedModes.includes('view') || !plugin.supportedModes.includes('edit')) return;
 
-		if (!confirm(`WARNING: Permanently wipe all local notes for profile "${profile.name}"?\n\n(This does not delete the profile itself, just its offline cache.)`)) return;
+		AppState.isViewMode = !AppState.isViewMode;
+		UI.applyModeVisibility();
+
+		if (plugin.onModeSwitch) await plugin.onModeSwitch(AppState.isViewMode);
+	},
+
+	// =====================================================================
+	// SYNC & DB OPERATIONS
+	// =====================================================================
+	async clearDB(id) {
+		const ws = AppState.workspaces[id];
+		if (!ws) return;
+
+		if (!confirm(`WARNING: Permanently wipe all local notes for workspace "${ws.name}"?\n\n(This does not delete the workspace itself, just its offline cache.)`)) return;
 
 		try {
-			if (id === AppState.activeProfileId) {
-				// Active Profile: Clear via DBService and reset the live UI
+			if (id === AppState.activeWorkspaceId) {
 				await DBService.clear();
 				UI.resetEditor();
 				history.replaceState(null, null, window.location.pathname);
 				UI.renderFileList();
 				AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-				UI.showStatus(`Local cache cleared for ${profile.name}.`);
+				UI.showStatus(`Local cache cleared for ${ws.name}.`);
 			} else {
-				// Background Profile: Just drop the IndexedDB from the browser silently
-				indexedDB.deleteDatabase(profile.dbName);
-				UI.showStatus(`Local cache cleared for ${profile.name}.`);
+				indexedDB.deleteDatabase(ws.dbName);
+				UI.showStatus(`Local cache cleared for ${ws.name}.`);
 			}
 		} catch(err) {
 			UI.showStatus(`Failed to clear local cache.`, true);
@@ -239,7 +314,7 @@ const Actions = {
 		const note = await DBService.get(filename);
 		if (!note) return;
 
-		const msg = note.last_synced_sha ? `Delete ${filename} from local AND GitHub?` : `Delete ${filename} locally?`;
+		const msg = note.last_synced_sha ? `Delete ${filename} from local AND remote?` : `Delete ${filename} locally?`;
 		if (!confirm(msg)) return;
 
 		try {
@@ -263,7 +338,6 @@ const Actions = {
 			UI.showStatus('Refreshing file list remotely...');
 			const treeData = await SyncService.getTree();
 
-			// Show ALL files in the sidebar, regardless of type or size
 			const files = treeData.tree.filter(item => item.type === 'blob');
 
 			for (const file of files) {
@@ -282,47 +356,46 @@ const Actions = {
 			UI.showStatus(`Refresh failed: ${err.message}`, true);
 		}
 	},
+
 	async pullFile() {
 		const filename = AppState.currentFilename;
 		if (!filename) return;
 
 		try {
 			let localNote = await DBService.get(filename);
-
 			UI.showStatus(`Pulling ${filename}...`);
 
 			const isBinary = Utils.isImageFile(filename) || Utils.isPdfFile(filename);
-
-			// 3. Proceed with the network request
 			const fileResponse = await SyncService.getFile(filename);
 
-			// Fallback initialization just in case the file wasn't in IndexedDB yet
 			if (!localNote) {
 				localNote = { filename, content: '', last_synced_sha: null, remote_sha: null, is_dirty: false };
 			}
 
 			if (isBinary) {
-				// Binary Handling (Blobs)
-				localNote.content = fileResponse; // fileResponse is a raw Blob here
+				localNote.content = fileResponse; 
 				localNote.is_dirty = false;
-				localNote.last_synced_sha = localNote.remote_sha; // Use the known SHA from the tree
+				localNote.last_synced_sha = localNote.remote_sha; 
 			} else {
-				// Text Handling (Base64 Strings)
 				const remoteContent = Utils.atou(fileResponse.content);
 				if (localNote.is_dirty && localNote.content !== remoteContent) {
-					const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
+					const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote\ni: Ignore remote`, "d");
 					if (choice === null) return UI.showStatus("Pull cancelled.");
 
 					if (choice === "w") {
 						localNote.content = remoteContent;
 						localNote.is_dirty = false;
+					} else if (choice == "i") {
+						localNote.is_dirty = true;
 					} else {
+						UI.showStatus(`Loading diff engine...`);
 						try {
 							await Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js");
 						} catch (err) {
-							UI.showStatus(`Failed to load jsdiff.`, true);
+							return UI.showStatus(`Error: Failed to load diff engine. Merge cancelled.`, true);
 						}
 
+						UI.showStatus(`Injecting merge markers...`, true);
 						if (typeof Diff !== 'undefined') {
 							let merged = "";
 							Diff.diffLines(remoteContent, localNote.content).forEach(p => {
@@ -353,6 +426,7 @@ const Actions = {
 			UI.showStatus(`Pull failed: ${err.message}`, true);
 		}
 	},
+
 	async pushFile() {
 		const filename = AppState.currentFilename;
 		if (!filename) return;
@@ -365,23 +439,17 @@ const Actions = {
 
 			let base64Content;
 
-			// THE INESCAPABLE NET: If it is an object (Blob, File, or stripped IDB object), it is binary.
 			if (typeof note.content === 'object' && note.content !== null) {
-
-				// Force extraction via Response wrapper (bypasses missing prototype methods)
 				const buffer = await new Response(note.content).arrayBuffer();
 				const bytes = new Uint8Array(buffer);
 
-				// Encode in chunks to prevent memory limits
 				let binary = '';
 				const chunkSize = 8192;
 				for (let i = 0; i < bytes.length; i += chunkSize) {
 					binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
 				}
 				base64Content = btoa(binary);
-
 			} else {
-				// It is strictly text.
 				base64Content = Utils.utoa(String(note.content));
 			}
 
@@ -400,6 +468,9 @@ const Actions = {
 		}
 	},
 
+	// =====================================================================
+	// PIN OPERATIONS (Workspace Contextual)
+	// =====================================================================
 	addPin() {
 		const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
 			AppState.currentFilename || '');
@@ -407,53 +478,47 @@ const Actions = {
 
 		if (!AppState.pins.includes(pin)) {
 			AppState.pins.push(pin);
-			this.saveProfile(); // <--- Changed
+			
+			this.saveSettings(); 
 			UI.renderPins();
 		}
 	},
 
 	removePin(pin, event) {
 		event.stopPropagation();
-		AppState.pins = AppState.pins.filter(p => p !== pin);
-		this.saveProfile(); // <--- Changed
-		UI.renderPins();
+		const index = AppState.pins.indexOf(pin);
+		if (index > -1) {
+			AppState.pins.splice(index, 1);
+			this.saveSettings(); 
+			UI.renderPins();
+		}
 	},
 
 	async handlePinClick(pin) {
 		const note = await DBService.get(pin);
 
 		if (note) {
-			// Route A: Exact file exists. Open it normally.
 			this.openFile(pin);
 		} else {
-			// Route B: It's a directory (or missing file). Inject into search bar.
 			DOM.searchBar.value = pin;
 			UI.renderFileList(pin, false);
 		}
 	},
 
-	async toggleViewMode() {
-		const plugin = AppState.activePlugin;
-		if (!plugin || !plugin.supportedModes.includes('view') || !plugin.supportedModes.includes('edit')) return;
-
-		AppState.isViewMode = !AppState.isViewMode;
-		UI.applyModeVisibility();
-
-		if (plugin.onModeSwitch) {
-			await plugin.onModeSwitch(AppState.isViewMode);
-		}
-	},
-
-	async linkDropboxPKCE(id) {
-		const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
-		if (!key) return alert("Please enter your App Key first.");
+	// =====================================================================
+	// DROPBOX OAUTH HANDLERS
+	// =====================================================================
+	async linkDropboxPKCE(kcId) {
+		const keychain = AppState.keychains[kcId];
+		const key = keychain.appKey;
+		
+		if (!key) return alert("Please enter your App Key first (and ensure it is saved).");
 
 		const verifier = Utils.generateCodeVerifier();
 		const challenge = await Utils.generateCodeChallenge(verifier);
 
 		sessionStorage.setItem('dbx_pkce_verifier', verifier);
-		sessionStorage.setItem('dbx_pkce_profile_id', id);
-		sessionStorage.setItem('dbx_pkce_client_id', key); // <--- ADD THIS LINE
+		sessionStorage.setItem('dbx_pkce_keychain_id', kcId);
 
 		const redirectUri = window.location.origin + window.location.pathname;
 		const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&token_access_type=offline&redirect_uri=${encodeURIComponent(redirectUri)}`;
@@ -464,18 +529,16 @@ const Actions = {
 		const params = new URLSearchParams(window.location.search);
 		const code = params.get('code');
 		const verifier = sessionStorage.getItem('dbx_pkce_verifier');
-		const profileId = sessionStorage.getItem('dbx_pkce_profile_id');
-		const clientId = sessionStorage.getItem('dbx_pkce_client_id'); // <--- PULL IT HERE
+		const kcId = sessionStorage.getItem('dbx_pkce_keychain_id');
 
-		if (!code || !verifier || !profileId || !clientId) return false;
+		if (!code || !verifier || !kcId) return false;
 
 		window.history.replaceState({}, document.title, window.location.pathname);
 		sessionStorage.removeItem('dbx_pkce_verifier');
-		sessionStorage.removeItem('dbx_pkce_profile_id');
-		sessionStorage.removeItem('dbx_pkce_client_id'); // Clean up
+		sessionStorage.removeItem('dbx_pkce_keychain_id'); 
 
-		const profile = AppState.profiles[profileId];
-		if (!profile) return false;
+		const keychain = AppState.keychains[kcId];
+		if (!keychain) return false;
 
 		try {
 			const redirectUri = window.location.origin + window.location.pathname;
@@ -483,7 +546,7 @@ const Actions = {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
-					client_id: clientId, // <--- USE IT HERE
+					client_id: keychain.appKey, 
 					grant_type: 'authorization_code',
 					code: code,
 					code_verifier: verifier,
@@ -498,15 +561,11 @@ const Actions = {
 				throw new Error(data.error_description || data.error || "Unknown Auth Failure");
 			}
 
-			// 4. Save to the profile permanently!
-			profile.config.provider = 'dropbox';
-			profile.config.appKey = clientId; // <--- SAVE IT HERE
-			profile.config.appSecret = ''; 
-			profile.config.token = data.access_token;
-			profile.config.refreshToken = data.refresh_token; 
+			keychain.provider = 'dropbox';
+			keychain.token = data.access_token;
+			keychain.refreshToken = data.refresh_token; 
 
-			localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-			if (profileId === AppState.activeProfileId) AppState.config = profile.config;
+			localStorage.setItem('notes_keychains', JSON.stringify(AppState.keychains));
 
 			return true;
 		} catch (err) {
@@ -514,4 +573,56 @@ const Actions = {
 			return false;
 		}
 	},
+	ensureDefaultState() {
+		// 1. Check if we already have a valid, active workspace. If so, we are done.
+		if (AppState.activeWorkspace) {
+			return; 
+		}
+
+		// 2. We don't have an active workspace. Do we have ANY workspaces left?
+		// (This handles the edge case where the active ID was corrupted or deleted)
+		const existingWsIds = Object.keys(AppState.workspaces);
+		if (existingWsIds.length > 0) {
+			this.switchWorkspace(existingWsIds[0]);
+			return;
+		}
+
+		// 3. The app is completely blank. We must generate the default relational state.
+		let defaultKcId;
+		const existingKcIds = Object.keys(AppState.keychains);
+
+		if (existingKcIds.length > 0) {
+			defaultKcId = existingKcIds[0];
+		} else {
+			// Create an empty default Keychain
+			defaultKcId = 'kc_default';
+			AppState.keychains[defaultKcId] = {
+				name: 'Default Credentials',
+				provider: 'github',
+				token: '',
+				appKey: '',
+				refreshToken: ''
+			};
+			localStorage.setItem('notes_keychains', JSON.stringify(AppState.keychains));
+		}
+
+		// 4. Create the default Workspace linked to the Keychain
+		const defaultWsId = 'ws_default';
+		AppState.workspaces[defaultWsId] = {
+			name: 'Local Workspace',
+			dbName: 'NotesDB_default', 
+			keychainId: defaultKcId, 
+			host: 'https://api.github.com', 
+			owner: '', 
+			repo: '', 
+			branch: 'main',
+			rootDir: '',      
+			shallow: false,
+			pins: []
+		};
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+
+		// 5. Safely boot the app into the new default workspace
+		this.switchWorkspace(defaultWsId);
+	}
 };

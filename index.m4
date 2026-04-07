@@ -2,9 +2,9 @@ m4_changequote([[, ]])
 m4_changecom(<!--, -->)
 
 m4_define([[LOAD_CSS]],
-	<!-- $1.css starts here -->
+	/* $1.css starts here */
 	[[m4_include([[$1.css]])]]
-	<!-- ends here -->
+	/* ends here */
 	)
 
 m4_define([[LOAD_CORE]],
@@ -56,6 +56,8 @@ m4_define([[PLUGIN]],
 
 		<div id="sidebar">
 			<div class="sidebar-header">
+				<div id="workspace-indicator" style="width: 100%; font-size: 11px; font-weight: bold; color: var(--accent); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help;"></div>
+
 				<button onclick="Actions.createFile()">+ New</button>
 				<button onclick="DOM.fileInput.click()">📤 Upload</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
@@ -88,65 +90,69 @@ m4_define([[PLUGIN]],
 			<div id="status-bar"></div>
 		</div>
 
-		<template id="profile-card-template">
-			<div class="profile-card">
-				<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-					<h3 class="profile-title" style="margin: 0;"></h3>
-					<div class="profile-actions" style="display: flex; gap: 8px;">
-						<button class="btn-switch">Switch</button>
-						<button class="btn-clear" style="color: #c98200;">🧹 Clear Data</button>
-						<button class="btn-delete" style="color: var(--danger);">🗑️ Delete</button>
-					</div>
-				</div>
-				<div class="form-grid">
-					<div class="form-group" style="grid-column: 1 / -1;">
-						<label>Storage Provider</label>
-						<select class="cfg-provider" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
-							<option value="github">GitHub</option>
-							<option value="dropbox">Dropbox (App Folder)</option>
-						</select>
-					</div>
-					
-					<!-- Dropbox Fields -->
-					<div class="form-group dbx-only" style="display: none;">
-						<label>App Key (Client ID)</label>
-						<input type="text" class="cfg-dbx-key" placeholder="Found in Dropbox App Console">
-					</div>
-					<div class="form-group dbx-only" style="display: none; grid-column: 1 / -1; flex-direction: row; gap: 15px; align-items: center;">
-						<button class="btn-link-dbx" style="background: var(--accent); color: white; border: none; padding: 8px 16px;">
-							⚡ Link Dropbox Account
-						</button>
-						<span class="dbx-status" style="font-size: 13px; color: #666;"></span>
-					</div>
-		
-					<!-- GitHub Fields -->
-					<div class="form-group gh-only">
-						<label>Access Token</label>
-						<input type="password" class="cfg-token" placeholder="ghp_...">
-						<span style="font-size: 12px; color: #c98200; margin-top: 6px; display: block; line-height: 1.4;">
-							⚠️ <strong>Security Warning:</strong> Use a Fine-grained PAT scoped exclusively to the target repository.
-						</span>
-					</div>
-					<div class="form-group gh-only">
-						<label>Host URL</label>
-						<input type="text" class="cfg-host">
-					</div>
-					<div class="form-group gh-only">
-						<label>Owner (Username)</label>
-						<input type="text" class="cfg-owner">
-					</div>
-					<div class="form-group gh-only">
-						<label>Repository Name</label>
-						<input type="text" class="cfg-repo">
-					</div>
-					<div class="form-group gh-only">
-						<label>Branch</label>
-						<input type="text" class="cfg-branch">
-					</div>
-				</div>
-				<button class="btn-save">💾 Save Configuration</button>
-			</div>
-		</template>
+<!-- Template 1: Keychain (Credentials only) -->
+<template id="keychain-card-template">
+    <div class="profile-card">
+        <h3 class="kc-title" style="margin-top: 0;"></h3>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Provider</label>
+                <select class="kc-provider">
+                    <option value="github">GitHub</option>
+                    <option value="dropbox">Dropbox</option>
+                </select>
+            </div>
+            <!-- GitHub Auth -->
+            <div class="form-group gh-only">
+                <label>Personal Access Token</label>
+                <input type="password" class="kc-token" placeholder="ghp_...">
+            </div>
+            <!-- Dropbox Auth -->
+            <div class="form-group dbx-only" style="display:none; grid-column: 1 / -1;">
+                <label>App Key</label>
+                <div style="display: flex; gap: 10px; width: 100%;">
+                    <input type="text" class="kc-appkey" style="flex-grow: 1;">
+                    <button class="btn-link-dbx" style="white-space: nowrap;">🔗 Link to Dropbox</button>
+                </div>
+                <div class="dbx-status" style="margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
+            </div>
+        </div>
+        <button class="btn-delete" style="color: var(--danger); margin-top: 10px;">🗑️ Delete Keychain</button>
+    </div>
+</template>
+
+<!-- Template 2: Workspace (Mount Point only) -->
+<template id="workspace-card-template">
+    <div class="profile-card">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <h3 class="ws-title" style="margin: 0;"></h3>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-switch">Switch</button>
+                <button class="btn-clear" style="color: #c98200;">🧹 Clear DB</button>
+                <button class="btn-delete" style="color: var(--danger);">🗑️ Delete</button>
+            </div>
+        </div>
+        <div class="form-grid">
+            <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Linked Keychain</label>
+                <select class="ws-keychain"></select> 
+            </div>
+            
+            <!-- Git Specific Fields -->
+            <div class="form-group ws-gh-only"><label>Host</label><input type="text" class="ws-host"></div>
+            <div class="form-group ws-gh-only"><label>Owner</label><input type="text" class="ws-owner"></div>
+            <div class="form-group ws-gh-only"><label>Repository</label><input type="text" class="ws-repo"></div>
+            <div class="form-group ws-gh-only"><label>Branch</label><input type="text" class="ws-branch"></div>
+            
+            <!-- Universal VFS Fields -->
+            <div class="form-group"><label>Root Directory (Optional)</label><input type="text" class="ws-rootDir" placeholder="e.g. docs/src"></div>
+            <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                <input type="checkbox" class="ws-shallow" style="width: auto;">
+                <label style="margin: 0;">Shallow Fetch (Show Folders)</label>
+            </div>
+        </div>
+    </div>
+</template>
 
 		<script>
 
