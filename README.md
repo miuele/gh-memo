@@ -1,5 +1,7 @@
 # Local-First Web Editor
 
+[Try Online](https://miuele.github.io/gh-memo-app)
+
 ## Core Idea
 This is a lightweight, zero-backend web application for note-taking and file editing. It is designed around a local-first architecture: all files are cached and edited directly within the browser using IndexedDB. The application syncs directly to remote cloud providers (GitHub and Dropbox) via their REST APIs entirely from the client side. There is no intermediate backend or database server.
 
@@ -29,9 +31,8 @@ Because it operates natively in the browser, the application works offline and c
 
 - Deep Search: Includes a client-side search function that scans both filenames and the raw text content of all files currently cached in the active workspace.
 
-## Security
+## Security Notes
 - Local Storage: Authentication tokens and file metadata are stored in the browser's `localStorage`. Note content is stored in `IndexedDB`.
-- Client-Side Only: Since there is no backend, your credentials never leave your browser except to communicate directly with the official GitHub or Dropbox APIs.
 - No Encryption: Local data is currently stored in plaintext within the browser's storage engines. It is recommended to use this application only on trusted, private devices.
 
 ## Technical Limitations
@@ -42,6 +43,4 @@ Because this application relies entirely on client-side API requests, it is boun
 - Memory Constraints: Large binary files (like high-resolution images or large PDFs) are stored directly in IndexedDB and held in browser memory during viewing, which may affect performance on low-end devices.
 
 - Rate Limiting: Heavy, recursive folder fetching on large repositories can trigger GitHub's secondary rate limits if performed too frequently.
-
-[Try Online](https://miuele.github.io/gh-memo-app)
 
