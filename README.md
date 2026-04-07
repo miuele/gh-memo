@@ -29,6 +29,11 @@ Because it operates natively in the browser, the application works offline and c
 
 - Deep Search: Includes a client-side search function that scans both filenames and the raw text content of all files currently cached in the active workspace.
 
+## Security
+- Local Storage: Authentication tokens and file metadata are stored in the browser's `localStorage`. Note content is stored in `IndexedDB`.
+- Client-Side Only: Since there is no backend, your credentials never leave your browser except to communicate directly with the official GitHub or Dropbox APIs.
+- No Encryption: Local data is currently stored in plaintext within the browser's storage engines. It is recommended to use this application only on trusted, private devices.
+
 ## Technical Limitations
 Because this application relies entirely on client-side API requests, it is bound by the constraints of the providers it connects to:
 
