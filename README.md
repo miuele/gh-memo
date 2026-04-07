@@ -7,6 +7,17 @@ This is a lightweight, zero-backend web application for note-taking and file edi
 
 Because it operates natively in the browser, the application works offline and can be installed as a Progressive Web App (PWA).
 
+## Quick Start
+To build and run the application locally:
+1. Ensure `m4` and `make` are installed on your system.
+2. Run `make` to build the project.
+3. Run `make serve` to start a local development server.
+
+## Configuration & Authentication
+To sync your files, you need to configure a Keychain with appropriate credentials:
+- **GitHub**: Use a Fine-grained Personal Access Token (PAT). For security, it is recommended to scope the token only to the specific repositories you intend to edit, granting "Contents" read and write permissions.
+- **Dropbox**: Requires a Dropbox App Key. The application uses the PKCE flow to authorize access to your Dropbox files without storing a long-lived secret key.
+
 ## Features
 ### Storage & Synchronization
 - Offline-First: All file creation, deletion, and editing operations happen instantly against the local IndexedDB cache.
