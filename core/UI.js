@@ -10,7 +10,9 @@ const UI = {
 	},
 	renderPins() {
 		DOM.pinContainer.replaceChildren();
-		AppState.pins.forEach(pin => {
+		const pins = AppState.activePins; // Read from the Forest level
+		
+		pins.forEach(pin => {
 			DOM.pinContainer.appendChild(
 				h('span', { class: 'pin-tag', onclick: () => Actions.handlePinClick(pin) },
 					h('span', {}, pin),
@@ -110,6 +112,37 @@ const UI = {
 
 		let notes = await DBService.getAll();
 
+		// --- VIRTUAL MOUNT POINT INJECTION ---
+		const sig = AppState.activeTreeSignature;
+		const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
+		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+
+		treeWsIds.forEach(id => {
+			if (id === AppState.activeWorkspaceId) return;
+			
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			
+			// If the target workspace is a descendant of our current directory
+			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
+				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
+				
+				// Inject if it doesn't already exist in the local cache
+				if (!notes.find(n => n.filename === relativePath)) {
+					notes.push({
+						filename: relativePath,
+						is_folder: true,
+						is_mount_point: true,
+						is_dirty: false,
+						matchCount: 0
+					});
+				} else {
+					// Tag existing local folder as a mount point for styling
+					notes.find(n => n.filename === relativePath).is_mount_point = true;
+				}
+			}
+		});
+		// -------------------------------------
+
 		// 2. If another search started while we were waiting for the DB, abort this one!
 		if (currentRenderId !== AppState.renderId) return;
 
@@ -136,17 +169,56 @@ const UI = {
 			notes.sort((a, b) => a.filename.localeCompare(b.filename));
 		}
 
+		// --- PARENT WORKSPACE NAVIGATION BUTTON ---
+		// Only show the "Go Up" button if we are not currently searching
+		if (!term) {
+			const sig = AppState.activeTreeSignature;
+			const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
+			const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			
+			// If we are not at the absolute root, look for an ancestor workspace
+			if (currentRoot) {
+				const parentId = treeWsIds.find(id => {
+					if (id === AppState.activeWorkspaceId) return false;
+					
+					const candidateRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+					
+					// It is a valid parent if it's the absolute root, or if the current path
+					// strictly sits inside the candidate's directory structure.
+					return candidateRoot === '' || currentRoot.startsWith(candidateRoot + '/');
+				});
+
+				if (parentId) {
+					const li = h('li', {
+						class: 'file-item',
+						style: 'color: var(--accent); font-weight: bold; background: rgba(0, 102, 204, 0.05);',
+						onclick: () => Actions.switchWorkspace(parentId)
+					}, h('span', {}, '🔙 ../'));
+					
+					DOM.fileList.appendChild(li);
+				}
+			}
+		}
+		// ------------------------------------------
+
 		notes.forEach(note => {
 			let icon = '🟢'; 
 			const isDirty = note.is_dirty;
 			const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
 			const isSymlink = note.filename.endsWith('.symlink');
+			const isFolder = note.is_folder;
 
-			// Apply Symlink styling
-			if (isSymlink) {
+			let displayName = note.filename;
+
+			// Apply Folder & Symlink styling
+			if (isFolder) {
+				icon = note.is_mount_point ? '🗂️' : '📁';
+				displayName += '/';
+			} else if (isSymlink) {
 				icon = '🔗';
 				if (isDirty) icon = '🔗🟡';
 			} else {
+				// Standard text/binary styling
 				if (isDirty && hasRemoteUpdate) icon = '🟡⬇️'; 
 				else if (isDirty) icon = '🟡';   
 				else if (hasRemoteUpdate) icon = '⬇️';   
@@ -155,7 +227,7 @@ const UI = {
 			const li = h('li', {
 				class: 'file-item' + (note.filename === AppState.currentFilename ? ' active' : ''),
 				onclick: () => Actions.openFile(note.filename)
-			}, h('span', {}, icon + ' ' + note.filename));
+			}, h('span', {}, icon + ' ' + displayName));
 
 			if (deepSearch && note.matchCount) {
 				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + (note.matchCount > 1 ? 'es' : '')));
@@ -164,192 +236,60 @@ const UI = {
 			DOM.fileList.appendChild(li);
 		});
 	},
+
 	renderSettings() {
-		// 1. Clear the panel
 		DOM.settingsPanel.replaceChildren();
 
 		// ==========================================
-		// SECTION 0: GLOBAL OVERRIDES
+		// 0: GLOBAL OVERRIDES
 		// ==========================================
 		DOM.settingsPanel.appendChild(
-		    h('div', { class: 'settings-header', style: 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);' },
-		        h('label', { style: 'display: flex; align-items: center; gap: 10px; cursor: pointer; color: #c98200; font-weight: bold;' },
-		            h('input', { 
-		                type: 'checkbox', 
-		                checked: AppState.isSymlinkEditMode,
-		                onchange: e => AppState.isSymlinkEditMode = e.target.checked
-		            }),
-		            '🔧 Enable Symlink Edit Mode (Resets on reload)'
-		        )
-		    )
+			h('div', { class: 'settings-header', style: 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);' },
+				h('label', { style: 'display: flex; align-items: center; gap: 10px; cursor: pointer; color: #c98200; font-weight: bold;' },
+					h('input', { 
+					    type: 'checkbox', 
+					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}), // Omit entirely if false
+					    onchange: e => AppState.isSymlinkEditMode = e.target.checked
+					}),
+					'🔧 Enable Symlink Edit Mode (Resets on reload)'
+				)
+			)
 		);
 
 		// ==========================================
-		// SECTION 1: KEYCHAINS (CREDENTIALS)
+		// 1: KEYCHAINS (CREDENTIALS)
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header' },
 				h('h2', { style: 'margin: 0;' }, '🔑 Keychains (Credentials)'),
-				h('button', { 
-					onclick: () => Actions.createKeychain(), 
-					style: 'background: var(--accent); color: white; border: none;' 
-				}, '+ New Keychain')
+				h('button', { onclick: () => Actions.createKeychain(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Keychain')
 			)
 		);
 
 		const kcTemplate = document.getElementById('keychain-card-template');
-
 		for (const [id, kc] of Object.entries(AppState.keychains)) {
-			const clone = kcTemplate.content.cloneNode(true);
-			const card = clone.querySelector('.profile-card');
-
-			card.querySelector('.kc-title').textContent = kc.name;
-
-			// Map inputs and bind live updates to AppState
-			const providerEl = card.querySelector('.kc-provider');
-			providerEl.value = kc.provider || 'github';
-			providerEl.addEventListener('change', e => kc.provider = e.target.value);
-
-			const tokenEl = card.querySelector('.kc-token');
-			tokenEl.value = kc.token || '';
-			tokenEl.addEventListener('input', e => kc.token = e.target.value);
-
-			const appKeyEl = card.querySelector('.kc-appkey');
-			appKeyEl.value = kc.appKey || '';
-			appKeyEl.addEventListener('input', e => kc.appKey = e.target.value);
-
-			// Visibility toggle logic
-			const toggleVisibility = () => {
-				const isDbx = providerEl.value === 'dropbox';
-				card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
-				card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
-			};
-			providerEl.addEventListener('change', toggleVisibility);
-			toggleVisibility();
-
-			// --- DROPBOX UI LOGIC ---
-			const dbxStatusEl = card.querySelector('.dbx-status');
-			const btnLinkDbx = card.querySelector('.btn-link-dbx');
-			
-			if (dbxStatusEl) {
-			    dbxStatusEl.textContent = kc.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked';
-			    dbxStatusEl.style.color = kc.refreshToken ? 'var(--success, green)' : 'var(--danger, red)';
-			}
-			
-			if (btnLinkDbx) {
-			    // Only show the link button if it's NOT linked yet, or if they change the app key
-			    btnLinkDbx.style.display = kc.refreshToken ? 'none' : 'block';
-			    
-			    btnLinkDbx.addEventListener('click', () => {
-			        // Save state immediately before redirecting so the App Key isn't lost
-			        Actions.saveSettings(); 
-			        Actions.linkDropboxPKCE(id);
-			    });
-			}
-			
-			// Re-evaluate the link button visibility if the user edits the App Key
-			appKeyEl.addEventListener('input', () => {
-			    if (btnLinkDbx && kc.refreshToken) {
-			        dbxStatusEl.textContent = '⚠️ App Key changed. Re-link required.';
-			        dbxStatusEl.style.color = '#c98200'; // Warning orange
-			        btnLinkDbx.style.display = 'block';
-			    }
-			});
-			// ------------------------
-
-			card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteKeychain(id));
-
-			DOM.settingsPanel.appendChild(card);
+			DOM.settingsPanel.appendChild(this._createKeychainCard(id, kc, kcTemplate));
 		}
 
 		// ==========================================
-		// SECTION 2: WORKSPACES (MOUNT POINTS)
+		// 2: WORKSPACES (THE FOREST)
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header', style: 'margin-top: 40px;' },
-				h('h2', { style: 'margin: 0;' }, '📁 Workspaces (Mount Points)'),
-				h('button', { 
-					onclick: () => Actions.createWorkspace(), 
-					style: 'background: var(--accent); color: white; border: none;' 
-				}, '+ New Workspace')
+				h('h2', { style: 'margin: 0;' }, '📁 Workspace Forest'),
+				h('button', { onclick: () => Actions.createWorkspace(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Origin Tree')
 			)
 		);
 
-		const wsTemplate = document.getElementById('workspace-card-template');
+		const treeTemplate = document.getElementById('tree-group-template');
+		const rowTemplate = document.getElementById('mount-row-template');
 
-		for (const [id, ws] of Object.entries(AppState.workspaces)) {
-			const isActive = id === AppState.activeWorkspaceId;
-			const clone = wsTemplate.content.cloneNode(true);
-			const card = clone.querySelector('.profile-card');
-
-			if (isActive) card.classList.add('active');
-
-			// Build Title
-			const titleEl = card.querySelector('.ws-title');
-			titleEl.textContent = ws.name;
-			if (isActive) {
-				titleEl.appendChild(h('span', { style: 'color:var(--accent); font-size: 14px;' }, ' (Active)'));
-			}
-
-			// Populate Keychain Foreign Key Dropdown
-			const selectKc = card.querySelector('.ws-keychain');
-			for (const [kcId, keychain] of Object.entries(AppState.keychains)) {
-			    selectKc.appendChild(h('option', { value: kcId }, `${keychain.name} (${keychain.provider})`));
-			}
-			selectKc.value = ws.keychainId || '';
-			
-			// --- WORKSPACE VISIBILITY TOGGLE ---
-			const toggleWsVisibility = () => {
-			    const selectedKcId = selectKc.value;
-			    // Look up the provider of the linked keychain in AppState
-			    const provider = selectedKcId && AppState.keychains[selectedKcId] 
-			        ? AppState.keychains[selectedKcId].provider 
-			        : 'github';
-			        
-			    const isDbx = provider === 'dropbox';
-			    
-			    // Hide GitHub fields if Dropbox is selected
-			    card.querySelectorAll('.ws-gh-only').forEach(el => {
-			        el.style.display = isDbx ? 'none' : 'flex';
-			    });
-			};
-			
-			// Listen for dropdown changes
-			selectKc.addEventListener('change', e => {
-			    ws.keychainId = e.target.value;
-			    toggleWsVisibility();
-			});
-			
-			// Run once on initial render
-			toggleWsVisibility();
-			// -----------------------------------
-
-			// Map String Inputs
-			const fields = ['host', 'owner', 'repo', 'branch', 'rootDir'];
-			fields.forEach(f => {
-				const el = card.querySelector(`.ws-${f}`);
-				el.value = ws[f] || (f === 'branch' ? 'main' : (f === 'host' ? 'https://api.github.com' : ''));
-				el.addEventListener('input', e => ws[f] = e.target.value);
-			});
-
-			// Map Boolean Checkbox
-			const shallowEl = card.querySelector('.ws-shallow');
-			shallowEl.checked = !!ws.shallow;
-			shallowEl.addEventListener('change', e => ws.shallow = e.target.checked);
-
-			// Event Listeners
-			const btnSwitch = card.querySelector('.btn-switch');
-			if (isActive) btnSwitch.remove();
-			else btnSwitch.addEventListener('click', () => Actions.switchWorkspace(id));
-
-			card.querySelector('.btn-clear').addEventListener('click', () => Actions.clearDB(id));
-			card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteWorkspace(id));
-
-			DOM.settingsPanel.appendChild(card);
+		for (const [sig, wsIds] of Object.entries(AppState.workspaceTrees)) {
+			DOM.settingsPanel.appendChild(this._createTreeGroup(sig, wsIds, treeTemplate, rowTemplate));
 		}
 
 		// ==========================================
-		// SECTION 3: GLOBAL SAVE
+		// 3: GLOBAL SAVE
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('button', { 
@@ -357,6 +297,192 @@ const UI = {
 				style: 'margin-top: 20px; width: 100%; padding: 12px; background: var(--accent); color: white; border: none; font-size: 16px; font-weight: bold; border-radius: 6px;'
 			}, '💾 Save All Configurations')
 		);
+	},
+
+	// =====================================================================
+	// UI SETTINGS HELPERS
+	// =====================================================================
+
+	_createKeychainCard(id, kc, template) {
+		const clone = template.content.cloneNode(true);
+		const card = clone.querySelector('.profile-card');
+
+		card.querySelector('.kc-title').textContent = kc.name;
+
+		const providerEl = card.querySelector('.kc-provider');
+		const tokenEl = card.querySelector('.kc-token');
+		const appKeyEl = card.querySelector('.kc-appkey');
+
+		providerEl.value = kc.provider || 'github';
+		tokenEl.value = kc.token || '';
+		appKeyEl.value = kc.appKey || '';
+
+		providerEl.addEventListener('change', e => kc.provider = e.target.value);
+		tokenEl.addEventListener('input', e => kc.token = e.target.value);
+		appKeyEl.addEventListener('input', e => kc.appKey = e.target.value);
+
+		const toggleVisibility = () => {
+			const isDbx = providerEl.value === 'dropbox';
+			card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
+			card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
+		};
+		providerEl.addEventListener('change', toggleVisibility);
+		toggleVisibility();
+
+		const dbxStatusEl = card.querySelector('.dbx-status');
+		const btnLinkDbx = card.querySelector('.btn-link-dbx');
+		
+		if (dbxStatusEl) {
+			dbxStatusEl.textContent = kc.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked';
+			dbxStatusEl.style.color = kc.refreshToken ? 'var(--success, green)' : 'var(--danger, red)';
+		}
+		
+		if (btnLinkDbx) {
+			btnLinkDbx.style.display = kc.refreshToken ? 'none' : 'block';
+			btnLinkDbx.addEventListener('click', () => {
+				Actions.saveSettings(); 
+				Actions.linkDropboxPKCE(id);
+			});
+		}
+		
+		appKeyEl.addEventListener('input', () => {
+			if (btnLinkDbx && kc.refreshToken) {
+				dbxStatusEl.textContent = '⚠️ App Key changed. Re-link required.';
+				dbxStatusEl.style.color = '#c98200';
+				btnLinkDbx.style.display = 'block';
+			}
+		});
+
+		card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteKeychain(id));
+		return card;
+	},
+
+	_createTreeGroup(sig, wsIds, treeTemplate, rowTemplate) {
+		const refWs = AppState.workspaces[wsIds[0]];
+		const refKc = AppState.keychains[refWs.keychainId];
+
+		const clone = treeTemplate.content.cloneNode(true);
+		const groupEl = clone.querySelector('.tree-group');
+		const listEl = groupEl.querySelector('.mount-list');
+		const titleEl = groupEl.querySelector('.tree-title');
+
+		// Set dynamic title
+		if (sig.startsWith('github|')) {
+		    titleEl.textContent = `🐙 ${refWs.owner || '(No Owner)'} / ${refWs.repo || '(No Repo)'}`;
+		} else {
+		    titleEl.textContent = `🗄️ Dropbox Storage`;
+		}
+
+		// Bind Shared Inputs
+		const selectKc = groupEl.querySelector('.tree-keychain');
+		const ownerEl = groupEl.querySelector('.tree-owner');
+		const repoEl = groupEl.querySelector('.tree-repo');
+		const branchEl = groupEl.querySelector('.tree-branch');
+		const hostEl = groupEl.querySelector('.tree-host');
+		const ghContainer = groupEl.querySelector('.tree-gh-only');
+
+		// Populate Keychains Dropdown
+		for (const [kcId, keychain] of Object.entries(AppState.keychains)) {
+			selectKc.appendChild(h('option', { value: kcId }, `${keychain.name} (${keychain.provider})`));
+		}
+		selectKc.value = refWs.keychainId || '';
+
+		// Visibility Toggle for Dropbox
+		const toggleGhVisibility = () => {
+			const selectedKcId = selectKc.value;
+			const provider = selectedKcId && AppState.keychains[selectedKcId] 
+				? AppState.keychains[selectedKcId].provider : 'github';
+			ghContainer.style.display = (provider === 'dropbox') ? 'none' : 'flex';
+		};
+		toggleGhVisibility();
+
+		// Setup Values
+		ownerEl.value = refWs.owner || '';
+		repoEl.value = refWs.repo || '';
+		branchEl.value = refWs.branch || '';
+		hostEl.value = refWs.host || '';
+
+		// Bind Events (Propagate changes to ALL workspaces in this tree instantly)
+		selectKc.addEventListener('change', e => {
+			wsIds.forEach(id => AppState.workspaces[id].keychainId = e.target.value);
+			toggleGhVisibility();
+		});
+		ownerEl.addEventListener('input', e => {
+			wsIds.forEach(id => AppState.workspaces[id].owner = e.target.value);
+			titleEl.textContent = ` ${e.target.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
+		});
+		repoEl.addEventListener('input', e => {
+			wsIds.forEach(id => AppState.workspaces[id].repo = e.target.value);
+			titleEl.textContent = ` ${ownerEl.value || '(No Owner)'} / ${e.target.value || '(No Repo)'}`;
+		});
+		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
+		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
+
+		// Mount Point Spawner
+		groupEl.querySelector('.btn-add-mount').addEventListener('click', () => Actions.createMountPoint(refWs));
+
+		// Render the child rows
+		for (const id of wsIds) {
+			const ws = AppState.workspaces[id];
+			const isActive = id === AppState.activeWorkspaceId;
+			listEl.appendChild(this._createMountRow(id, ws, wsIds, isActive, rowTemplate));
+		}
+
+		return groupEl;
+	},
+
+	_createMountRow(id, ws, wsIds, isActive, rowTemplate) {
+		const rowClone = rowTemplate.content.cloneNode(true);
+		const rowEl = rowClone.querySelector('.mount-row');
+
+		if (isActive) {
+			rowEl.style.borderColor = 'var(--accent)';
+			rowEl.style.background = '#f0f7ff';
+		}
+
+		const nameEl = rowEl.querySelector('.ws-name');
+		const rootEl = rowEl.querySelector('.ws-rootDir');
+		const shallowEl = rowEl.querySelector('.ws-shallow');
+		const warningEl = rowEl.querySelector('.leaf-warning');
+
+		nameEl.value = ws.name;
+		nameEl.addEventListener('input', e => ws.name = e.target.value);
+
+		rootEl.value = ws.rootDir || '';
+		rootEl.addEventListener('input', e => ws.rootDir = e.target.value);
+
+		// Leaf Constraint Visualization
+		const currentRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const hasChildren = wsIds.some(childId => {
+			if (childId === id) return false;
+			const childRoot = (AppState.workspaces[childId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return childRoot.startsWith(currentRoot ? currentRoot + '/' : '');
+		});
+
+		if (hasChildren) {
+			shallowEl.checked = true;
+			shallowEl.disabled = true;
+			ws.shallow = true; 
+			warningEl.style.display = 'inline';
+		} else {
+			shallowEl.checked = !!ws.shallow;
+			shallowEl.addEventListener('change', e => ws.shallow = e.target.checked);
+		}
+
+		const btnSwitch = rowEl.querySelector('.btn-switch');
+		if (isActive) {
+			btnSwitch.textContent = 'Active';
+			btnSwitch.disabled = true;
+			btnSwitch.style.background = 'var(--accent)';
+			btnSwitch.style.color = 'white';
+		} else {
+			btnSwitch.addEventListener('click', () => Actions.switchWorkspace(id));
+		}
+
+		rowEl.querySelector('.btn-clear').addEventListener('click', () => Actions.clearDB(id));
+		rowEl.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteWorkspace(id));
+
+		return rowEl;
 	},
 	updateWorkspaceIndicator() {
 		if (!DOM.workspaceIndicator) return;

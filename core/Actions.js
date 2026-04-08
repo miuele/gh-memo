@@ -35,40 +35,73 @@ const Actions = {
 	// WORKSPACE MANAGEMENT
 	// =====================================================================
 	createWorkspace() {
-		const name = prompt('Enter workspace name (e.g., Docs, Frontend src):');
-		if (!name) return;
-
 		const kcIds = Object.keys(AppState.keychains);
 		if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
+		const repoName = prompt('Enter Repository (e.g., torvalds/linux) or leave blank for Dropbox:');
+		if (repoName === null) return;
+
+		let owner = '';
+		let repo = repoName;
+		if (repoName.includes('/')) {
+			[owner, repo] = repoName.split('/');
+		}
+
+		// Auto-select the right keychain provider based on input
+		let targetKcId = kcIds[0];
+		if (!repoName) {
+			const dbxKc = kcIds.find(id => AppState.keychains[id].provider === 'dropbox');
+			if (dbxKc) targetKcId = dbxKc;
+		} else {
+			const ghKc = kcIds.find(id => AppState.keychains[id].provider === 'github');
+			if (ghKc) targetKcId = ghKc;
+		}
+
 		const id = 'ws_' + Date.now();
 		AppState.workspaces[id] = {
-			name: name,
+			name: repoName ? repoName : 'Dropbox Storage',
 			dbName: 'NotesDB_' + id, 
-			keychainId: kcIds[0], // Default to the first available keychain
+			keychainId: targetKcId,
 			host: 'https://api.github.com', 
-			owner: '', 
-			repo: '', 
-			branch: 'main',
-			rootDir: '',      // e.g., 'src/docs'
-			shallow: false,   // false = recursive IDE view, true = folder exploration
-			pins: []
+			owner: owner.trim(), 
+			repo: repo.trim(), 
+			branch: repoName ? 'main' : '',
+			rootDir: '',      
+			shallow: false
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
 		this.switchWorkspace(id);
 		this.openSettings();
 	},
+	createMountPoint(parentWs) {
+		const newRoot = prompt(`Enter sub-directory path to mount (e.g., src/docs):`);
+		if (newRoot === null) return; // User cancelled
 
+		const id = 'ws_' + Date.now();
+		
+		// Clone all origin data, but reset the mount-specific data
+		AppState.workspaces[id] = {
+			name: parentWs.name + ' (' + newRoot + ')',
+			dbName: 'NotesDB_' + id, 
+			keychainId: parentWs.keychainId,
+			host: parentWs.host, 
+			owner: parentWs.owner, 
+			repo: parentWs.repo, 
+			branch: parentWs.branch,
+			rootDir: newRoot,      
+			shallow: false
+		};
+
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+		UI.renderSettings(); // Re-render to show the new row instantly
+	},
 	switchWorkspace(id, skipHistory = false) {
 		const ws = AppState.workspaces[id];
 		if (!ws) return;
 
 		AppState.activeWorkspaceId = id;
 		localStorage.setItem('notes_active_workspace', id);
-
-		if (!ws.pins) ws.pins = [];
-		AppState.pins = ws.pins;
 
 		UI.resetEditor();
 		DOM.searchBar.value = '';
@@ -140,53 +173,65 @@ const Actions = {
 	// FILE EDITOR OPERATIONS
 	// =====================================================================
 	async openFile(filename, skipHistory = false) {
+		// --- 1. MOUNT POINT INTERCEPTOR ---
+		// We do this BEFORE the database check to catch virtual grandchild folders
+		const ws = AppState.activeWorkspace;
+		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
+
+		const sig = AppState.activeTreeSignature;
+		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
+
+		const matchedId = treeWorkspaces.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === absolutePath;
+		});
+
+		if (matchedId) {
+			return this.switchWorkspace(matchedId); // Teleport!
+		}
+		// ----------------------------------
+
 		const note = await DBService.get(filename);
 		if (!note) return;
 
-		// --- THE SYMLINK INTERCEPTOR ---
+		// --- 2. UNMOUNTED FOLDER INTERCEPTOR ---
+		if (note.is_folder) {
+			return UI.showStatus(`Cannot open directory: No sub-workspace is mounted for '/${absolutePath}'.`, true);
+		}
+		// ---------------------------------------
+
+		// --- 3. THE SYMLINK INTERCEPTOR ---
 		if (filename.endsWith('.symlink') && !AppState.isSymlinkEditMode) {
 			try {
 				const payload = JSON.parse(note.content || '{}');
-
-				// Define which fields are actually valid for routing
 				const matchableFields = ['provider', 'host', 'owner', 'repo', 'branch', 'rootDir'];
 				const payloadKeys = Object.keys(payload).filter(k => matchableFields.includes(k));
 
-				if (payloadKeys.length === 0) {
-					return UI.showStatus(`⚠️ Error: Symlink contains no valid routing fields.`, true);
-				}
+				if (payloadKeys.length === 0) return UI.showStatus(`⚠️ Error: Symlink contains no valid fields.`, true);
 
-				// Gather all workspaces that match every field provided in the payload
 				const matchedIds = Object.keys(AppState.workspaces).filter(id => {
-					const ws = AppState.workspaces[id];
-
+					const wsTarget = AppState.workspaces[id];
 					return payloadKeys.every(key => {
-						// Special normalization for rootDir
 						if (key === 'rootDir') {
-							const wsRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+							const wsRoot = (wsTarget.rootDir || '').replace(/(^\/+|\/+$)/g, '');
 							const targetRoot = (payload.rootDir || '').replace(/(^\/+|\/+$)/g, '');
 							return wsRoot === targetRoot;
 						}
-						// Strict equality for all other provided fields
-						return ws[key] === payload[key];
+						return wsTarget[key] === payload[key];
 					});
 				});
 
-				// Evaluate the match results
-				if (matchedIds.length === 1) {
-					this.switchWorkspace(matchedIds[0]); // Teleport!
-					return; 
-				} else if (matchedIds.length > 1) {
-					return UI.showStatus(`❌ Ambiguous symlink: Matches ${matchedIds.length} workspaces. Be more specific.`, true);
-				} else {
-					return UI.showStatus(`❌ Target workspace not found locally.`, true);
-				}
+				if (matchedIds.length === 1) return this.switchWorkspace(matchedIds[0]);
+				else if (matchedIds.length > 1) return UI.showStatus(`❌ Ambiguous symlink.`, true);
+				else return UI.showStatus(`❌ Target workspace not found locally.`, true);
 
 			} catch (err) {
 				return UI.showStatus(`⚠️ Error: Malformed symlink JSON.`, true);
 			}
 		}
-		// -------------------------------
+		// ----------------------------------
 
 		// Standard Editor Boot Sequence
 		if (!skipHistory) {
@@ -338,14 +383,25 @@ const Actions = {
 			UI.showStatus('Refreshing file list remotely...');
 			const treeData = await SyncService.getTree();
 
-			const files = treeData.tree.filter(item => item.type === 'blob');
+			// FIX: Keep both blobs and folders so they enter IndexedDB
+			const files = treeData.tree.filter(item => item.type === 'blob' || item.type === 'folder');
 
 			for (const file of files) {
 				let localNote = await DBService.get(file.path);
+				const isFolder = file.type === 'folder';
+
 				if (!localNote) {
-					await DBService.put({ filename: file.path, content: '', last_synced_sha: null, remote_sha: file.sha, is_dirty: false });
+					await DBService.put({ 
+						filename: file.path, 
+						content: isFolder ? null : '', // Folders don't need content payloads
+						last_synced_sha: null, 
+						remote_sha: file.sha, 
+						is_dirty: false,
+						is_folder: isFolder // Explicitly flag it for the router
+					});
 				} else {
 					localNote.remote_sha = file.sha;
+					localNote.is_folder = isFolder; 
 					await DBService.put(localNote);
 				}
 			}
@@ -469,39 +525,79 @@ const Actions = {
 	},
 
 	// =====================================================================
-	// PIN OPERATIONS (Workspace Contextual)
+	// PIN OPERATIONS (Forest Contextual)
 	// =====================================================================
 	addPin() {
-		const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
-			AppState.currentFilename || '');
-		if (!pin) return;
+		const pinRelative = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):', AppState.currentFilename || '');
+		if (!pinRelative) return;
 
-		if (!AppState.pins.includes(pin)) {
-			AppState.pins.push(pin);
-			
-			this.saveSettings(); 
+		// 1. Compute the absolute path for Forest-level storage
+		const ws = AppState.activeWorkspace;
+		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanFile = pinRelative.replace(/(^\/+|\/+$)/g, '');
+		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
+
+		// 2. Save it to the Tree Signature
+		const sig = AppState.activeTreeSignature;
+		if (!sig) return;
+
+		if (!AppState.treePins[sig]) AppState.treePins[sig] = [];
+		if (!AppState.treePins[sig].includes(absolutePath)) {
+			AppState.treePins[sig].push(absolutePath);
+			localStorage.setItem('notes_tree_pins', JSON.stringify(AppState.treePins));
 			UI.renderPins();
 		}
 	},
 
-	removePin(pin, event) {
+	removePin(absolutePath, event) {
 		event.stopPropagation();
-		const index = AppState.pins.indexOf(pin);
+		const sig = AppState.activeTreeSignature;
+		if (!sig || !AppState.treePins[sig]) return;
+
+		const index = AppState.treePins[sig].indexOf(absolutePath);
 		if (index > -1) {
-			AppState.pins.splice(index, 1);
-			this.saveSettings(); 
+			AppState.treePins[sig].splice(index, 1);
+			localStorage.setItem('notes_tree_pins', JSON.stringify(AppState.treePins));
 			UI.renderPins();
 		}
 	},
 
-	async handlePinClick(pin) {
-		const note = await DBService.get(pin);
+	async handlePinClick(absolutePath) {
+		const sig = AppState.activeTreeSignature;
+		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
 
-		if (note) {
-			this.openFile(pin);
-		} else {
-			DOM.searchBar.value = pin;
-			UI.renderFileList(pin, false);
+		// 1. "Best Fit" Router: Find the deepest workspace that encapsulates this pin
+		const matchedId = treeWorkspaces.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
+		});
+
+		if (!matchedId) {
+			return UI.showStatus(`Cannot open pin: No workspace is mounted for this path.`, true);
+		}
+
+		// 2. Switch to the target environment
+		if (matchedId !== AppState.activeWorkspaceId) {
+			this.switchWorkspace(matchedId);
+		}
+
+		// 3. Slice the absolute path back down to a relative path for the new VFS
+		const targetRoot = (AppState.workspaces[matchedId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		let relativePath = absolutePath;
+		if (targetRoot && absolutePath.startsWith(targetRoot)) {
+			relativePath = absolutePath.substring(targetRoot.length).replace(/^\//, ''); 
+		}
+
+		// 4. Open the file (or directory)
+		if (relativePath) {
+			const note = await DBService.get(relativePath);
+			if (note) {
+				this.openFile(relativePath);
+			} else {
+				// Fallback: Dump it in the search bar if it hasn't been pulled locally yet
+				DOM.searchBar.value = relativePath;
+				UI.renderFileList(relativePath, false);
+			}
 		}
 	},
 
