@@ -38,7 +38,7 @@ const Actions = {
 		const kcIds = Object.keys(AppState.keychains);
 		if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
-		const repoName = prompt('Enter Repository (e.g., torvalds/linux) or leave blank for Dropbox:');
+		const repoName = prompt('Enter Repository (e.g., rust-lang/cargo) or leave blank for Dropbox:');
 		if (repoName === null) return;
 
 		let owner = '';

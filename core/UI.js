@@ -251,7 +251,7 @@ const UI = {
 					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}), // Omit entirely if false
 					    onchange: e => AppState.isSymlinkEditMode = e.target.checked
 					}),
-					'🔧 Enable Symlink Edit Mode (Resets on reload)'
+					'Symlink Edit Mode (Resets on reload)'
 				)
 			)
 		);

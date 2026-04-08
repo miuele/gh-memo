@@ -1,4 +1,4 @@
-# Local-First Web Editor
+# gh-memo
 
 [Try Online](https://miuele.github.io/gh-memo-app)
 
@@ -18,6 +18,10 @@ To sync your files, you need to configure a Keychain with appropriate credential
 - **GitHub**: Use a Fine-grained Personal Access Token (PAT). For security, it is recommended to scope the token only to the specific repositories you intend to edit, granting "Contents" read and write permissions.
 - **Dropbox**: Requires a Dropbox App Key. The application uses the PKCE flow to authorize access to your Dropbox files.
 
+## Security Notes
+- Local Privacy: All data (tokens, metadata, and content) is stored in **plaintext** within the browser's localStorage and IndexedDB. No local at-rest encryption is implemented, nor is it planned. **Usage is recommended only on trusted, private devices**; users must secure data at the OS or hardware level.
+- External resources are loaded using Subresource Integrity (SRI), and Markdown rendering is processed via DOMPurify.
+
 ## Features
 ### Storage & Synchronization
 - Offline-First: All file creation, deletion, and editing operations happen instantly against the local IndexedDB cache.
@@ -35,7 +39,7 @@ To sync your files, you need to configure a Keychain with appropriate credential
 
 - Workspace Forest: Workspaces sharing a remote origin are grouped into trees. This enables tree-level navigation and pin resolution across multiple mount points.
 
-- Declarative Symlinks: Supports .symlink files containing JSON payloads. Clicking these files triggers the application router to instantly tear down the current environment and load a different locally configured workspace.
+- Declarative Symlinks: Supports .symlink files containing JSON payloads. Clicking these files triggers the application router to instantly tear down the current environment and load a different locally configured workspace. Example: `{ "owner": "rust-lang", "repo": "nomicon", "rootDir": "src" }`
 
 ### Editing & Organization
 - Format Support: Includes a plugin architecture for rendering different file types. It supports raw text editing, rich Markdown rendering (including KaTeX math parsing and syntax highlighting), and read-only viewing for PDFs and images.
@@ -43,10 +47,6 @@ To sync your files, you need to configure a Keychain with appropriate credential
 - Pinning: Files and directories can be pinned for quick access. Pins are stored at the repository (tree) level.
 
 - Deep Search: Includes a client-side search function that scans both filenames and the raw text content of all files currently cached in the active workspace.
-
-## Security Notes
-- Local Privacy: All data (tokens, metadata, and content) is stored in **plaintext** within the browser's localStorage and IndexedDB. No local at-rest encryption is implemented, nor is it planned. **Usage is recommended only on trusted, private devices**; users must secure data at the OS or hardware level.
-- External resources are loaded using Subresource Integrity (SRI), and Markdown rendering is processed via DOMPurify.
 
 ## Technical Limitations
 As a client-side application, behavior is bound by provider and browser constraints:
