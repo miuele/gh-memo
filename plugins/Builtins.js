@@ -60,14 +60,28 @@ Markdown: {
 			if (this.depsLoaded) return;
 			UI.showStatus('Loading Markdown engine...', false);
 			await Promise.all([
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/marked/marked.min.js'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css', 'style'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js',
+					'sha512-V6rGY7jjOEUc7q5Ews8mMlretz1Vn2wLdMW/qgABLWunzsLfluM0FwHuGjGQ1lc8jO5vGpGIGFE+rTzB+63HdA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js',
+					'sha512-78KH17QLT5e55GJqP76vutp1D2iAoy06WcYBXB6iBCsmO6wWzx0Qdg8EDpm8mKXv68BcvHOyeeP4wxAL0twJGQ=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css',
+					'sha512-fHwaWebuwA7NSF5Qg/af4UeDx9XqUpYpOGgubo3yWu+b2IQR4UeQwbb42Ti7gVAjNtVoI/I9TEoYeu9omwcC6g=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js',
+					'sha512-LQNxIMR5rXv7o+b1l8+N1EZMfhG7iFZ9HhnbJkTp4zjNr5Wvst75AqUeFDxeRUa7l5vEDyUiAip//r+EFLLCyA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css',
+					'sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js',
+					'sha512-EBLzUL8XLl+va/zAsmXwS7Z2B1F9HUHkZwyS/VKwh3S7T/U0nF4BaU29EP/ZSf6zgiIxYAnKLu6bJ8dqpmX5uw=='
+				)
 			]);
-			await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js');
+			await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.8/lib/index.umd.min.js',
+				'sha384-kZc6RA5jLUXlZ3Qx2c6lIk/01XDpL5lC9GwHtLLboKsl0mBL4wQtflWwqQIGEMgq'
+			);
 			marked.use(
 				window.markedKatex({ throwOnError: false, output: 'html' }),
 				{
@@ -109,14 +123,34 @@ Markdown: {
 			renderMarkdown: async function() {
 				await Plugins.Markdown.loadDeps();
 
-				const rawHtml = marked.parse(this.textarea.value);
-
-				// Must explicitly tell DOMPurify that data-src is a safe attribute
-				const safeFragment = DOMPurify.sanitize(rawHtml, { 
-					RETURN_DOM_FRAGMENT: true,
-					ADD_ATTR: ['data-src'] 
+				// 1. Register a secure hook BEFORE sanitization
+				// This safely enforces new tabs for all links during the sanitization pass
+				DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+				    if (node.tagName === 'A') {
+				        node.setAttribute('target', '_blank');
+				        node.setAttribute('rel', 'noopener noreferrer');
+				    }
 				});
-
+				
+				const rawHtml = marked.parse(this.textarea.value);
+				
+				// 2. Execute sanitization using explicit Allowlist Profiles
+				const safeFragment = DOMPurify.sanitize(rawHtml, {
+				    // Explicitly enable only the specific safe-lists we need.
+				    // By default, this obliterates all scripts, iframes, objects, and dangerous event handlers.
+				    USE_PROFILES: { 
+				        html: true,   // Standard safe HTML (p, h1, a, strong, img, etc.)
+				        mathMl: true, // Required for KaTeX equations
+				        svg: true     // Required for KaTeX root/fraction symbols
+				    },
+				    
+				    // Explicitly enforce allowed URI schemes. 
+				    // This strictly blocks `<a href="javascript:alert(1)">` vectors.
+				    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+					RETURN_DOM_FRAGMENT: true,
+					ADD_ATTR: ['data-src'],
+				});
+				
 				safeFragment.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 
 				const imgPromises = Array.from(safeFragment.querySelectorAll('img')).map(async (img) => {
@@ -143,6 +177,9 @@ Markdown: {
 				await Promise.all(imgPromises);
 
 				this.viewLayer.replaceChildren(safeFragment);
+				
+				// Remove the hook after use so it doesn't bleed into other plugins
+				DOMPurify.removeHook('afterSanitizeAttributes');
 			},
 
 			freeze: function() {
@@ -166,7 +203,7 @@ Text: {
 		loadDeps: async function() {
 			if (this.depsLoaded) return;
 			await Promise.all([
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css'),
 				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
 			]);
 			this.depsLoaded = true;

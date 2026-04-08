@@ -446,7 +446,9 @@ const Actions = {
 					} else {
 						UI.showStatus(`Loading diff engine...`);
 						try {
-							await Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js");
+							await Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js',
+								'sha512-8pp155siHVmN5FYcqWNSFYn8Efr61/7mfg/F15auw8MCL3kvINbNT7gT8LldYPq3i/GkSADZd4IcUXPBoPP8gA=='
+							);
 						} catch (err) {
 							return UI.showStatus(`Error: Failed to load diff engine. Merge cancelled.`, true);
 						}

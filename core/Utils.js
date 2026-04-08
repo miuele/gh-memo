@@ -31,22 +31,29 @@ const Utils = {
 		const basename = lastDot === -1 ? filename : filename.substring(0, lastDot);
 		return { dir, filename, basename };
 	},
-	loadResource: (url, type = 'script') => {
+	loadResource: async (url, integrity = null) => {
 		return new Promise((resolve, reject) => {
-			// Don't load the same file twice
-			if (document.querySelector(`[src="${url}"]`) || document.querySelector(`[href="${url}"]`)) return resolve();
+			// Prevent duplicate loading
+			if (document.querySelector(`[src="${url}"], [href="${url}"]`)) return resolve();
 
-			let el;
-			if (type === 'script') {
-				el = document.createElement('script');
-				el.src = url;
-			} else if (type === 'style') {
-				el = document.createElement('link');
+			const isCss = url.split('?')[0].endsWith('.css');
+			const el = document.createElement(isCss ? 'link' : 'script');
+
+			if (isCss) {
 				el.rel = 'stylesheet';
 				el.href = url;
+			} else {
+				el.src = url;
 			}
+
+			// Apply SRI strict enforcement
+			if (integrity) {
+				el.integrity = integrity;
+				el.crossOrigin = 'anonymous'; // Required for SRI validation
+			}
+
 			el.onload = resolve;
-			el.onerror = reject;
+			el.onerror = () => reject(new Error(`Failed to load resource: ${url}`));
 			document.head.appendChild(el);
 		});
 	},
