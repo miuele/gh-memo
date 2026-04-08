@@ -16,7 +16,7 @@ To build and run the application locally:
 ## Configuration & Authentication
 To sync your files, you need to configure a Keychain with appropriate credentials:
 - **GitHub**: Use a Fine-grained Personal Access Token (PAT). For security, it is recommended to scope the token only to the specific repositories you intend to edit, granting "Contents" read and write permissions.
-- **Dropbox**: Requires a Dropbox App Key. The application uses the PKCE flow to authorize access to your Dropbox files without storing a long-lived secret key.
+- **Dropbox**: Requires a Dropbox App Key. The application uses the PKCE flow to authorize access to your Dropbox files.
 
 ## Features
 ### Storage & Synchronization
@@ -29,29 +29,30 @@ To sync your files, you need to configure a Keychain with appropriate credential
 - Cross-Tab Locking: Utilizes the browser's BroadcastChannel API to detect if a file is being edited in another tab, freezing the UI to prevent local overwrite conflicts.
 
 ### Virtual File System (VFS)
-- Decoupled Credentials: Authentication tokens (Keychains) are managed separately from repository configurations (Workspaces). A single GitHub token can be mapped to multiple workspace mount points securely.
+- Decoupled Credentials: Authentication tokens (Keychains) are managed separately from repository configurations (Workspaces). A single GitHub token can be mapped to multiple workspace mount points.
 
-- Chroot Mount Points: Workspaces can be configured to mount specific sub-directories of a repository (e.g., src/docs), abstracting the rest of the repository away from the user interface.
+- Chroot Mount Points: Workspaces can be configured to mount specific sub-directories of a repository (e.g., src/docs), abstracting the rest of the repository away.
+
+- Workspace Forest: Workspaces sharing a remote origin are grouped into trees. This enables tree-level navigation and pin resolution across multiple mount points.
 
 - Declarative Symlinks: Supports .symlink files containing JSON payloads. Clicking these files triggers the application router to instantly tear down the current environment and load a different locally configured workspace.
 
 ### Editing & Organization
 - Format Support: Includes a plugin architecture for rendering different file types. It supports raw text editing, rich Markdown rendering (including KaTeX math parsing and syntax highlighting), and read-only viewing for PDFs and images.
 
-- Local Pinning: Files and directories can be pinned to the top of the sidebar for quick access. Pins are scoped to their specific workspace.
+- Pinning: Files and directories can be pinned for quick access. Pins are stored at the repository (tree) level.
 
 - Deep Search: Includes a client-side search function that scans both filenames and the raw text content of all files currently cached in the active workspace.
 
 ## Security Notes
-- Local Storage: Authentication tokens and file metadata are stored in the browser's `localStorage`. Note content is stored in `IndexedDB`.
-- No Encryption: Local data is currently stored in plaintext within the browser's storage engines. It is recommended to use this application only on trusted, private devices.
+- Local Privacy: All data (tokens, metadata, and content) is stored in **plaintext** within the browser's localStorage and IndexedDB. No local at-rest encryption is implemented, nor is it planned. **Usage is recommended only on trusted, private devices**; users must secure data at the OS or hardware level.
+- External resources are loaded using Subresource Integrity (SRI), and Markdown rendering is processed via DOMPurify.
 
 ## Technical Limitations
-Because this application relies entirely on client-side API requests, it is bound by the constraints of the providers it connects to:
+As a client-side application, behavior is bound by provider and browser constraints:
 
-- GitHub File Size: The GitHub Contents API strictly limits file uploads and downloads to 10MB or less.
-
-- Memory Constraints: Large binary files (like high-resolution images or large PDFs) are stored directly in IndexedDB and held in browser memory during viewing, which may affect performance on low-end devices.
-
-- Rate Limiting: Heavy, recursive folder fetching on large repositories can trigger GitHub's secondary rate limits if performed too frequently.
+- API Limits: GitHub's Contents API limits file transfers to 10MB.
+- Memory: Large binaries are held in memory during use; performance may degrade on low-end devices.
+- Git Bloat: Git handles binaries poorly; frequent updates to large files will cause repository bloat.
+- Rate Limiting: High-frequency recursive fetching may trigger secondary rate limits.
 
