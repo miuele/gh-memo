@@ -7,7 +7,7 @@ const Utils = {
 		// Files with no extension are usually text (e.g., Makefile, .env)
 		if (!filename.includes('.')) return true; 
 		// Add or remove extensions to this regex as needed
-		return /\.(txt|md|markdown|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|ps1|c|cpp|h|rs|go|java|toml)$/i.test(filename);
+		return /\.(txt|md|markdown|rst|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|ps1|c|cpp|h|rs|go|java|toml|sml)$/i.test(filename);
 	},
 	resolvePath: (basePath, relativePath) => {
 		// Ignore external web links and base64 data URIs
