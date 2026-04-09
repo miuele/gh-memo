@@ -2,16 +2,22 @@
 
 [Try Online](https://miuele.github.io/gh-memo-app)
 
+![screenshot](./screenshot.jpg)
+
+## Getting Started
+"New" button creates a new file, and the preview button at the bottom-right toggles view mode (renders Markdown for a .md file).
+
+Optionally, get your GitHub Personal Access Token (PAT), paste it in the settings and fill in the repository name. Clicking "Refresh List" fetches file contents from the remote repository, "Pull" button pulls a file content, and "Push" button pushes the changes you made to a file.
+
 ## Core Idea
-This is a lightweight, zero-backend web application for note-taking and file editing. It is designed around a local-first architecture: all files are cached and edited directly within the browser using IndexedDB. The application syncs directly to remote cloud providers (GitHub and Dropbox) via their REST APIs entirely from the client side. There is no intermediate backend or database server.
+This is a single-page, zero-backend web application for note-taking and file editing. It is designed around a local-first architecture: all files are cached and edited directly within the browser using IndexedDB. The application syncs directly to remote cloud providers (GitHub and Dropbox) via their REST APIs entirely from the client side. There is no intermediate backend or database server.
 
 Because it operates natively in the browser, the application works offline and can be installed as a Progressive Web App (PWA).
 
-## Quick Start
-To build and run the application locally:
-1. Ensure `m4` and `make` are installed on your system.
-2. Run `make` to build the project.
-3. Run `make serve` to start a local development server.
+## Building and Running locally
+Requires `m4` and `make`.
+1. Run `make` to build the project. `index.html` is generated in `dist/`.
+2. Run `make serve` to start a local development server.
 
 ## Configuration & Authentication
 To sync your files, you need to configure a Keychain with appropriate credentials:
@@ -56,3 +62,6 @@ As a client-side application, behavior is bound by provider and browser constrai
 - Git Bloat: Git handles binaries poorly; frequent updates to large files will cause repository bloat.
 - Rate Limiting: High-frequency recursive fetching may trigger secondary rate limits.
 
+## Notes
+- AI assistants were used extensively for coding. Nevertheless the application models and architectural decisions are my own.
+- App icon "Bloc Notes SZ" by [Fmaunier](https://commons.wikimedia.org/wiki/File:Bloc_Notes_SZ.png), licensed under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
