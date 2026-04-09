@@ -24,6 +24,7 @@ const UI = {
 	resetEditor() {
 		AppState.isViewMode = false;
 		AppState.currentFilename = null;
+		document.title = 'gh-memo';
 
 		// 1. Unmount any active plugin to free memory
 		if (AppState.activePlugin && AppState.activePlugin.unmount) {
@@ -48,6 +49,7 @@ const UI = {
 	async setEditorActive(filename, content) {
 		AppState.currentFilename = filename;
 		DOM.filenameLabel.textContent = filename;
+		document.title = filename;
 		DOM.statusBar.style.display = 'none';
 
 		// Reset any previous cross-tab freezes
@@ -379,6 +381,7 @@ const UI = {
 		const repoEl = groupEl.querySelector('.tree-repo');
 		const branchEl = groupEl.querySelector('.tree-branch');
 		const hostEl = groupEl.querySelector('.tree-host');
+		const commitToggle = groupEl.querySelector('.tree-askCommit');
 		const ghContainer = groupEl.querySelector('.tree-gh-only');
 
 		// Populate Keychains Dropdown
@@ -401,6 +404,7 @@ const UI = {
 		repoEl.value = refWs.repo || '';
 		branchEl.value = refWs.branch || '';
 		hostEl.value = refWs.host || '';
+		commitToggle.checked = !!refWs.askForCommitMsg;
 
 		// Bind Events (Propagate changes to ALL workspaces in this tree instantly)
 		selectKc.addEventListener('change', e => {
@@ -417,6 +421,7 @@ const UI = {
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
 		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
+		commitToggle.addEventListener('change', e => wsIds.forEach(id => AppState.workspaces[id].askForCommitMsg = e.target.checked));
 
 		// Mount Point Spawner
 		groupEl.querySelector('.btn-add-mount').addEventListener('click', () => Actions.createMountPoint(refWs));

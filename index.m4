@@ -46,7 +46,7 @@ m4_define([[PLUGIN]],
 			}
 		</script>
 
-		<title>Local-First Notes</title>
+		<title>gh-memo</title>
 
 		<style>
 			LOAD_CSS([[styles]])
@@ -138,6 +138,9 @@ m4_define([[PLUGIN]],
                     <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
                     <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
                     <input type="text" class="tree-host" placeholder="Host" style="width: 150px; padding: 4px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
+                        <input type="checkbox" class="tree-askCommit" style="width: auto;"> Ask for commit msg
+                    </label>
                 </div>
             </div>
         </div>

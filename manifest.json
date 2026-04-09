@@ -1,6 +1,5 @@
 {
-  "name": "Local Notes",
-  "short_name": "Notes",
+  "name": "gh-memo",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f9f9f9",

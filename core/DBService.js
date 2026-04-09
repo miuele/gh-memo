@@ -200,13 +200,13 @@ const GitHubService = {
 		return await res.json();
 	},
 
-	async putFile(filename, contentBase64, sha, workspace, keychain) {
+	async putFile(filename, contentBase64, sha, commitMsg, workspace, keychain) {
 		const fullPath = this._getFullPath(workspace.rootDir, filename);
 		const { host, owner, repo, branch } = workspace;
 		const url = `${host}/repos/${owner}/${repo}/contents/${fullPath}`;
 
 		const payload = { 
-			message: `Update ${filename}`, 
+			message: commitMsg || `Update ${filename}`, 
 			content: contentBase64, 
 			branch: branch 
 		};
@@ -406,7 +406,7 @@ const DropboxService = {
 		return { content: Utils.utoa(await res.text()), sha: rev };
 	},
 
-	async putFile(filename, base64Content, sha, workspace, keychain) {
+	async putFile(filename, base64Content, sha, commitMsg, workspace, keychain) {
 		const fullPath = this._getFullPath(workspace.rootDir, filename);
 		const binaryString = atob(base64Content);
 		
@@ -461,7 +461,7 @@ const SyncService = {
     },
     getTree: () => SyncService.active.getTree(AppState.activeWorkspace, AppState.activeKeychain),
     getFile: (filename) => SyncService.active.getFile(filename, AppState.activeWorkspace, AppState.activeKeychain),
-    putFile: (filename, content, sha) => SyncService.active.putFile(filename, content, sha, AppState.activeWorkspace, AppState.activeKeychain),
+    putFile: (filename, content, sha, commitMsg) => SyncService.active.putFile(filename, content, sha, commitMsg, AppState.activeWorkspace, AppState.activeKeychain),
     deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha, AppState.activeWorkspace, AppState.activeKeychain),
     fileUploadSizeLimit: () => SyncService.active.fileUploadSizeLimit(),
 };

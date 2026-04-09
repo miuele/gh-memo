@@ -67,7 +67,8 @@ const Actions = {
 			repo: repo.trim(), 
 			branch: repoName ? 'main' : '',
 			rootDir: '',      
-			shallow: false
+			shallow: false,
+			askForCommitMsg: false,
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
@@ -90,7 +91,8 @@ const Actions = {
 			repo: parentWs.repo, 
 			branch: parentWs.branch,
 			rootDir: newRoot,      
-			shallow: false
+			shallow: false,
+			askForCommitMsg: !!parentWs.askForCommitMsg,
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
@@ -493,6 +495,16 @@ const Actions = {
 			const note = await DBService.get(filename);
 			if (!note || !note.is_dirty) return UI.showStatus(`${filename} is already up to date.`);
 
+			let commitMsg = null;
+			const kc = AppState.activeKeychain;
+			
+			// Guard: Only prompt if the toggle is on AND the provider is not Dropbox
+			if (AppState.activeWorkspace.askForCommitMsg && kc && kc.provider !== 'dropbox') {
+				const userMsg = prompt(`Enter commit message for ${filename}:`);
+				if (userMsg == null) return UI.showStatus("Push cancelled.");
+				if (userMsg.trim()) commitMsg = userMsg.trim();
+			}
+
 			UI.showStatus(`Pushing ${filename}...`);
 
 			let base64Content;
@@ -511,7 +523,7 @@ const Actions = {
 				base64Content = Utils.utoa(String(note.content));
 			}
 
-			const responseData = await SyncService.putFile(filename, base64Content, note.last_synced_sha);
+			const responseData = await SyncService.putFile(filename, base64Content, note.last_synced_sha, commitMsg);
 
 			note.last_synced_sha = responseData.content.sha;
 			note.remote_sha = responseData.content.sha;
@@ -716,7 +728,8 @@ const Actions = {
 			branch: 'main',
 			rootDir: '',      
 			shallow: false,
-			pins: []
+			pins: [],
+			askForCommitMsg: false,
 		};
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
 
