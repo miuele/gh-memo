@@ -7,7 +7,7 @@ const Utils = {
 		// Files with no extension are usually text (e.g., Makefile, .env)
 		if (!filename.includes('.')) return true; 
 		// Add or remove extensions to this regex as needed
-		return /\.(txt|md|markdown|rst|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|ps1|c|cpp|h|rs|go|java|toml|sml|gitignore|symlink)$/i.test(filename);
+		return /\.(txt|md|markdown|rst|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|m4|ps1|c|cpp|h|rs|go|java|toml|sml|gitignore|symlink)$/i.test(filename);
 	},
 	resolvePath: (basePath, relativePath) => {
 		// Ignore external web links and base64 data URIs
@@ -59,7 +59,7 @@ const Utils = {
 	},
 	createStandardEditor: (content, saveCallback) => {
 		const textarea = document.createElement('textarea');
-		textarea.style.cssText = 'width: 100%; height: 100%; box-sizing: border-box; padding: 20px; border: none; resize: none; outline: none; font-family: monospace; font-size: 15px; line-height: 1.5;';
+		textarea.style.cssText = 'display: block; width: 100%; height: 100%; box-sizing: border-box; padding: 20px; border: none; resize: none; outline: none; font-family: monospace; font-size: 15px; line-height: 1.5;';
 		textarea.value = typeof content === 'string' ? content : '';
 
 		// Auto-save hook

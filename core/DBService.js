@@ -90,7 +90,7 @@ const GitHubService = {
 				'Accept': 'application/vnd.github.v3+json',
 				...options.headers
 			},
-			cache: 'no-store'
+			cache: 'no-cache'
 		});
 
 		if (!res.ok) {
@@ -156,6 +156,7 @@ const GitHubService = {
 
 	async getTree(workspace, keychain) {
 		if (!keychain || !keychain.token) throw new Error("Missing credentials in keychain.");
+		if (!workspace.owner || !workspace.repo) throw new Error("Repository owner and name are not configured.");
 
 		const tree = workspace.shallow 
 			? await this._getShallowTree(workspace, keychain)
@@ -283,7 +284,7 @@ const DropboxService = {
 		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			cache: 'no-store',
+			cache: 'no-cache',
 			body: new URLSearchParams({
 				refresh_token: keychain.refreshToken,
 				grant_type: 'refresh_token',
@@ -308,7 +309,7 @@ const DropboxService = {
 		if (url.includes('/download')) delete headers['Content-Type'];
 
 		initOptions.headers = headers;
-		initOptions.cache = 'no-store';
+		initOptions.cache = 'no-cache';
 		
 		let res = await fetch(url, initOptions);
 

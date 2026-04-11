@@ -263,7 +263,7 @@ const UI = {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header' },
-				h('h2', { style: 'margin: 0;' }, '🔑 Keychains (Credentials)'),
+				h('h2', { style: 'margin: 0;' }, 'Keychains'),
 				h('button', { onclick: () => Actions.createKeychain(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Keychain')
 			)
 		);
@@ -278,7 +278,7 @@ const UI = {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header', style: 'margin-top: 40px;' },
-				h('h2', { style: 'margin: 0;' }, '📁 Workspace Forest'),
+				h('h2', { style: 'margin: 0;' }, 'Workspaces'),
 				h('button', { onclick: () => Actions.createWorkspace(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Origin Tree')
 			)
 		);
@@ -413,11 +413,11 @@ const UI = {
 		});
 		ownerEl.addEventListener('input', e => {
 			wsIds.forEach(id => AppState.workspaces[id].owner = e.target.value);
-			titleEl.textContent = ` ${e.target.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
+			titleEl.textContent = `🐙 ${e.target.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
 		});
 		repoEl.addEventListener('input', e => {
 			wsIds.forEach(id => AppState.workspaces[id].repo = e.target.value);
-			titleEl.textContent = ` ${ownerEl.value || '(No Owner)'} / ${e.target.value || '(No Repo)'}`;
+			titleEl.textContent = `🐙 ${ownerEl.value || '(No Owner)'} / ${e.target.value || '(No Repo)'}`;
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
 		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
