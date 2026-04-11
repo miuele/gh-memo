@@ -115,32 +115,12 @@ const UI = {
 		let notes = await DBService.getAll();
 
 		// --- VIRTUAL MOUNT POINT INJECTION ---
-		const sig = AppState.activeTreeSignature;
-		const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
-		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-
-		treeWsIds.forEach(id => {
-			if (id === AppState.activeWorkspaceId) return;
-			
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-			
-			// If the target workspace is a descendant of our current directory
-			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
-				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
-				
-				// Inject if it doesn't already exist in the local cache
-				if (!notes.find(n => n.filename === relativePath)) {
-					notes.push({
-						filename: relativePath,
-						is_folder: true,
-						is_mount_point: true,
-						is_dirty: false,
-						matchCount: 0
-					});
-				} else {
-					// Tag existing local folder as a mount point for styling
-					notes.find(n => n.filename === relativePath).is_mount_point = true;
-				}
+		const virtualMounts = VFS.getVirtualMounts();
+		virtualMounts.forEach(relativePath => {
+			if (!notes.find(n => n.filename === relativePath)) {
+				notes.push({ filename: relativePath, is_folder: true, is_mount_point: true, is_dirty: false, matchCount: 0 });
+			} else {
+				notes.find(n => n.filename === relativePath).is_mount_point = true;
 			}
 		});
 		// -------------------------------------
@@ -174,23 +154,8 @@ const UI = {
 		// --- PARENT WORKSPACE NAVIGATION BUTTON ---
 		// Only show the "Go Up" button if we are not currently searching
 		if (!term) {
-			const sig = AppState.activeTreeSignature;
-			const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
-			const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-			
-			// If we are not at the absolute root, look for an ancestor workspace
-			if (currentRoot) {
-				const parentId = treeWsIds.find(id => {
-					if (id === AppState.activeWorkspaceId) return false;
-					
-					const candidateRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-					
-					// It is a valid parent if it's the absolute root, or if the current path
-					// strictly sits inside the candidate's directory structure.
-					return candidateRoot === '' || currentRoot.startsWith(candidateRoot + '/');
-				});
-
-				if (parentId) {
+			const parentId = VFS.getParentWorkspace();
+			if (parentId) {
 					const li = h('li', {
 						class: 'file-item',
 						style: 'color: var(--accent); font-weight: bold; background: rgba(0, 102, 204, 0.05);',
@@ -198,7 +163,6 @@ const UI = {
 					}, h('span', {}, '🔙 ../'));
 					
 					DOM.fileList.appendChild(li);
-				}
 			}
 		}
 		// ------------------------------------------

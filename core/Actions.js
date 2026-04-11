@@ -175,20 +175,8 @@ const Actions = {
 	// FILE EDITOR OPERATIONS
 	// =====================================================================
 	async openFile(filename, skipHistory = false) {
-		// --- 1. MOUNT POINT INTERCEPTOR ---
-		// We do this BEFORE the database check to catch virtual grandchild folders
-		const ws = AppState.activeWorkspace;
-		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
-		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
-
-		const sig = AppState.activeTreeSignature;
-		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
-
-		const matchedId = treeWorkspaces.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-			return targetRoot === absolutePath;
-		});
+		const absolutePath = VFS.getAbsolutePath(AppState.activeWorkspaceId, filename);
+		const matchedId = VFS.getExactMount(absolutePath);
 
 		if (matchedId) {
 			return this.switchWorkspace(matchedId); // Teleport!
@@ -546,10 +534,7 @@ const Actions = {
 		if (!pinRelative) return;
 
 		// 1. Compute the absolute path for Forest-level storage
-		const ws = AppState.activeWorkspace;
-		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = pinRelative.replace(/(^\/+|\/+$)/g, '');
-		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
+		const absolutePath = VFS.getAbsolutePath(AppState.activeWorkspaceId, pinRelative);
 
 		// 2. Save it to the Tree Signature
 		const sig = AppState.activeTreeSignature;
@@ -577,14 +562,7 @@ const Actions = {
 	},
 
 	async handlePinClick(absolutePath) {
-		const sig = AppState.activeTreeSignature;
-		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
-
-		// 1. "Best Fit" Router: Find the deepest workspace that encapsulates this pin
-		const matchedId = treeWorkspaces.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
-		});
+		const matchedId = VFS.resolveBestFit(absolutePath);
 
 		if (!matchedId) {
 			return UI.showStatus(`Cannot open pin: No workspace is mounted for this path.`, true);
@@ -595,13 +573,7 @@ const Actions = {
 			this.switchWorkspace(matchedId);
 		}
 
-		// 3. Slice the absolute path back down to a relative path for the new VFS
-		const targetRoot = (AppState.workspaces[matchedId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		let relativePath = absolutePath;
-		if (targetRoot && absolutePath.startsWith(targetRoot)) {
-			relativePath = absolutePath.substring(targetRoot.length).replace(/^\//, ''); 
-		}
-
+		const relativePath = VFS.getRelativePath(matchedId, absolutePath);
 		// 4. Open the file (or directory)
 		if (relativePath) {
 			const note = await DBService.get(relativePath);

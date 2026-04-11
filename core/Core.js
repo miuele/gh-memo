@@ -73,6 +73,82 @@ const AppState = {
     isSymlinkEditMode: false,
 };
 
+const VFS = {
+	// 1. Local -> Global: Gets the absolute forest path for a local file
+	getAbsolutePath(workspaceId, filename) {
+		const ws = AppState.workspaces[workspaceId];
+		if (!ws) return (filename || '').replace(/(^\/+|\/+$)/g, '');
+
+		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		return [cleanRoot, cleanFile].filter(Boolean).join('/');
+	},
+
+	// 2. Global -> Local: Slices a forest path down for a specific workspace
+	getRelativePath(workspaceId, absolutePath) {
+		const targetRoot = (AppState.workspaces[workspaceId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		if (targetRoot && absolutePath.startsWith(targetRoot)) {
+			return absolutePath.substring(targetRoot.length).replace(/^\//, '');
+		}
+		return absolutePath;
+	},
+
+	// 3. The Router: Finds the deepest workspace mounted for an absolute path
+	resolveBestFit(absolutePath) {
+		const sig = AppState.activeTreeSignature;
+		if (!sig) return null;
+
+		const treeWsIds = AppState.workspaceTrees[sig] || [];
+		return treeWsIds.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
+		});
+	},
+
+	// 4. The Mapper: Finds sub-workspaces that should appear as folders locally
+	getVirtualMounts() {
+		const sig = AppState.activeTreeSignature;
+		if (!sig) return [];
+
+		const treeWsIds = AppState.workspaceTrees[sig] || [];
+		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const virtuals = [];
+
+		treeWsIds.forEach(id => {
+			if (id === AppState.activeWorkspaceId) return;
+
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
+				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
+				virtuals.push(relativePath);
+			}
+		});
+
+		return virtuals;
+	},
+
+	// 5. Exact Mount: Finds if a path is the explicit root of a sub-workspace
+	getExactMount(absolutePath) {
+		const sig = AppState.activeTreeSignature;
+		if (!sig) return null;
+		const treeWsIds = AppState.workspaceTrees[sig] || [];
+		return treeWsIds.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === absolutePath;
+		});
+	},
+
+	// 6. Navigation: Finds the nearest parent workspace for the current view
+	getParentWorkspace() {
+		const absolutePath = this.getAbsolutePath(AppState.activeWorkspaceId, '');
+		if (!absolutePath) return null; // We are at the absolute root
+
+		// By finding the best fit for our own parent directory, we find the immediate mount point above us
+		const parentDir = absolutePath.includes('/') ? absolutePath.substring(0, absolutePath.lastIndexOf('/')) : '';
+		return this.resolveBestFit(parentDir);
+	}
+};
+
 const DOM = {};
 
 function initDOM() {
