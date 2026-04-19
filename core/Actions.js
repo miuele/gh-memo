@@ -162,8 +162,8 @@ const Actions = {
 
 		DOM.filenameLabel.textContent = '⚙️ Settings & Profiles';
 
-		DOM.editLayer.style.display = 'none';
-		DOM.viewLayer.style.display = 'none';
+		UI.setLayerVisible(DOM.editLayer, false);
+		UI.setLayerVisible(DOM.viewLayer, false);
 
 		DOM.settingsPanel.style.display = 'block';
 		UI.renderSettings();

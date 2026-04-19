@@ -8,6 +8,12 @@ const UI = {
 		DOM.statusBar.className = isError ? 'error' : '';
 		if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
 	},
+	setLayerVisible(layer, isVisible) {
+		layer.style.display = 'block';
+		layer.style.visibility = isVisible ? 'visible' : 'hidden';
+		layer.style.opacity = isVisible ? '1' : '0';
+		layer.style.pointerEvents = isVisible ? 'auto' : 'none';
+	},
 	renderPins() {
 		DOM.pinContainer.replaceChildren();
 		const pins = AppState.activePins; // Read from the Forest level
@@ -35,8 +41,8 @@ const UI = {
 		// 2. Clear and reset the new agnostic layers
 		DOM.editLayer.replaceChildren();
 		DOM.viewLayer.replaceChildren();
-		DOM.editLayer.style.display = 'block';
-		DOM.viewLayer.style.display = 'none';
+		this.setLayerVisible(DOM.editLayer, false);
+		this.setLayerVisible(DOM.viewLayer, false);
 
 		DOM.filenameLabel.textContent = 'No file selected';
 		DOM.deleteBtn.style.display = 'none';
@@ -101,25 +107,11 @@ const UI = {
 		}
 
 		if (AppState.isViewMode) {
-			// Hide Editor
-			DOM.editLayer.style.visibility = 'hidden';
-			DOM.editLayer.style.opacity = '0';
-			DOM.editLayer.style.pointerEvents = 'none';
-
-			// Show View
-			DOM.viewLayer.style.visibility = 'visible';
-			DOM.viewLayer.style.opacity = '1';
-			DOM.viewLayer.style.pointerEvents = 'auto';
+			this.setLayerVisible(DOM.editLayer, false);
+			this.setLayerVisible(DOM.viewLayer, true);
 		} else {
-			// Show Editor
-			DOM.editLayer.style.visibility = 'visible';
-			DOM.editLayer.style.opacity = '1';
-			DOM.editLayer.style.pointerEvents = 'auto';
-
-			// Hide View
-			DOM.viewLayer.style.visibility = 'hidden';
-			DOM.viewLayer.style.opacity = '0';
-			DOM.viewLayer.style.pointerEvents = 'none';
+			this.setLayerVisible(DOM.editLayer, true);
+			this.setLayerVisible(DOM.viewLayer, false);
 		}
 	},
 	async renderFileList(searchTerm = '', deepSearch = false) {
