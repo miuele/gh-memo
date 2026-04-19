@@ -123,6 +123,15 @@ Markdown: {
 			renderMarkdown: async function() {
 				await Plugins.Markdown.loadDeps();
 
+				let processedText = this.textarea.value
+				        // Ensure block math has a preceding empty line (prevents it being swallowed by paragraphs)
+				        .replace(/([^\n])\n(\s*\$\$)/g, '$1\n\n$2')
+				        // Ensure block math has a following empty line
+				        .replace(/(\$\$\s*)\n([^\n])/g, '$1\n\n$2')
+				        // Add a space between math and trailing punctuation/hyphens ($x$) -> $x$ )
+				        // This prevents the regex boundary check from failing in marked-katex-extension
+				        .replace(/(\$[^$\n]+\$)([\-\)\],\.])/g, '$1 $2');
+
 				// 1. Register a secure hook BEFORE sanitization
 				// This safely enforces new tabs for all links during the sanitization pass
 				DOMPurify.addHook('afterSanitizeAttributes', function(node) {
@@ -132,7 +141,7 @@ Markdown: {
 				    }
 				});
 				
-				const rawHtml = marked.parse(this.textarea.value);
+				const rawHtml = marked.parse(processedText);
 				
 				// 2. Execute sanitization using explicit Allowlist Profiles
 				const safeFragment = DOMPurify.sanitize(rawHtml, {

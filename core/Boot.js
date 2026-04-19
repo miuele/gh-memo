@@ -151,6 +151,9 @@ document.addEventListener('keydown', (e) => {
 		e.preventDefault();
 		Actions.refreshTree();
 	}
+	if (e.altKey && e.key === ' ') {
+		Actions.toggleViewMode();
+	}
 });
 
 document.addEventListener('paste', async (e) => {
