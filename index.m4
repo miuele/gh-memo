@@ -19,6 +19,8 @@ m4_define([[PLUGIN]],
 	<!-- ends here -->
 	)
 
+m4_include([[resources.m4]])
+
 [[<!--]] generated from m4___file__ [[-->]]
 
 <!DOCTYPE html>

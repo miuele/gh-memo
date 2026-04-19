@@ -60,28 +60,17 @@ Markdown: {
 			if (this.depsLoaded) return;
 			UI.showStatus('Loading Markdown engine...', false);
 			await Promise.all([
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js',
-					'sha512-V6rGY7jjOEUc7q5Ews8mMlretz1Vn2wLdMW/qgABLWunzsLfluM0FwHuGjGQ1lc8jO5vGpGIGFE+rTzB+63HdA=='
-				),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js',
-					'sha512-78KH17QLT5e55GJqP76vutp1D2iAoy06WcYBXB6iBCsmO6wWzx0Qdg8EDpm8mKXv68BcvHOyeeP4wxAL0twJGQ=='
-				),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css',
-					'sha512-fHwaWebuwA7NSF5Qg/af4UeDx9XqUpYpOGgubo3yWu+b2IQR4UeQwbb42Ti7gVAjNtVoI/I9TEoYeu9omwcC6g=='
-				),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js',
-					'sha512-LQNxIMR5rXv7o+b1l8+N1EZMfhG7iFZ9HhnbJkTp4zjNr5Wvst75AqUeFDxeRUa7l5vEDyUiAip//r+EFLLCyA=='
-				),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css',
-					'sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA=='
-				),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js',
-					'sha512-EBLzUL8XLl+va/zAsmXwS7Z2B1F9HUHkZwyS/VKwh3S7T/U0nF4BaU29EP/ZSf6zgiIxYAnKLu6bJ8dqpmX5uw=='
-				)
+				Utils.loadResource("URL_MARKED_JS", "SRI_MARKED_JS"),
+				Utils.loadResource("URL_DOMPURIFY_JS", "SRI_DOMPURIFY_JS"),
+				Utils.loadResource("URL_KATEX_CSS", "SRI_KATEX_CSS"),
+				Utils.loadResource("URL_KATEX_JS", "SRI_KATEX_JS"),
+				Utils.loadResource("URL_HIGHLIGHT_JS", "SRI_HIGHLIGHT_JS"),
+				Utils.loadResource("URL_HIGHLIGHT_GITHUB_CSS", "SRI_HIGHLIGHT_GITHUB_CSS"),
 			]);
-			await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.8/lib/index.umd.min.js',
-				'sha384-kZc6RA5jLUXlZ3Qx2c6lIk/01XDpL5lC9GwHtLLboKsl0mBL4wQtflWwqQIGEMgq'
-			);
+
+			// Load the extension after KaTeX has been loaded
+			await Utils.loadResource("URL_MARKED_KATEX_EXTENSION_JS", "SRI_MARKED_KATEX_EXTENSION_JS");
+
 			marked.use(
 				window.markedKatex({ throwOnError: false, output: 'html' }),
 				{
@@ -212,8 +201,8 @@ Text: {
 		loadDeps: async function() {
 			if (this.depsLoaded) return;
 			await Promise.all([
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css'),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
+				Utils.loadResource("URL_HIGHLIGHT_GITHUB_CSS", "SRI_HIGHLIGHT_GITHUB_CSS"),
+				Utils.loadResource("URL_HIGHLIGHT_JS", "SRI_HIGHLIGHT_JS")
 			]);
 			this.depsLoaded = true;
 		},
