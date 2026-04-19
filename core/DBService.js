@@ -269,6 +269,12 @@ const DropboxService = {
 		return fullPath.substring(rootPrefix.length + 1); // +1 to drop the separator slash
 	},
 
+	_toHeaderSafeJson(obj) {
+	    return JSON.stringify(obj).replace(/[^\x00-\x7f]/g, (c) => {
+	        return "\\u" + ("000" + c.charCodeAt(0).toString(16)).slice(-4);
+	    });
+	},
+
 	_getHeaders(keychain, isContentEndpoint = false) {
 		if (!keychain || !keychain.token) throw new Error('Dropbox token missing in keychain.');
 		const headers = { 'Authorization': `Bearer ${keychain.token}` };
@@ -383,7 +389,7 @@ const DropboxService = {
 	
 	async getFile(filename, workspace, keychain) {
 		const fullPath = this._getFullPath(workspace.rootDir, filename);
-		const customHeaders = { 'Dropbox-API-Arg': JSON.stringify({ path: fullPath }) };
+		const customHeaders = { 'Dropbox-API-Arg': this._toHeaderSafeJson({ path: fullPath }) };
 		
 		const res = await this._apiFetch('https://content.dropboxapi.com/2/files/download', { method: 'POST' }, true, customHeaders, keychain);
 		if (!res.ok) throw new Error("Failed to download file from Dropbox.");
@@ -415,7 +421,7 @@ const DropboxService = {
 		for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
 
 		const customHeaders = {
-			'Dropbox-API-Arg': JSON.stringify({
+			'Dropbox-API-Arg': this._toHeaderSafeJson({
 				path: fullPath,
 				mode: sha ? { '.tag': 'update', update: sha } : { '.tag': 'add' },
 				strict_conflict: true

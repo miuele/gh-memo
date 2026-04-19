@@ -130,7 +130,7 @@ Markdown: {
 				        .replace(/(\$\$\s*)\n([^\n])/g, '$1\n\n$2')
 				        // Add a space between math and trailing punctuation/hyphens ($x$) -> $x$ )
 				        // This prevents the regex boundary check from failing in marked-katex-extension
-				        .replace(/(\$[^$\n]+\$)([\-\)\],\.])/g, '$1 $2');
+				        .replace(/(\$[^$\n]+\$)([\-\)\],\.\;\:])/g, '$1 $2');
 
 				// 1. Register a secure hook BEFORE sanitization
 				// This safely enforces new tabs for all links during the sanitization pass
