@@ -101,11 +101,25 @@ const UI = {
 		}
 
 		if (AppState.isViewMode) {
-			DOM.editLayer.style.display = 'none';
-			DOM.viewLayer.style.display = 'block';
+			// Hide Editor
+			DOM.editLayer.style.visibility = 'hidden';
+			DOM.editLayer.style.opacity = '0';
+			DOM.editLayer.style.pointerEvents = 'none';
+
+			// Show View
+			DOM.viewLayer.style.visibility = 'visible';
+			DOM.viewLayer.style.opacity = '1';
+			DOM.viewLayer.style.pointerEvents = 'auto';
 		} else {
-			DOM.viewLayer.style.display = 'none';
-			DOM.editLayer.style.display = 'block';
+			// Show Editor
+			DOM.editLayer.style.visibility = 'visible';
+			DOM.editLayer.style.opacity = '1';
+			DOM.editLayer.style.pointerEvents = 'auto';
+
+			// Hide View
+			DOM.viewLayer.style.visibility = 'hidden';
+			DOM.viewLayer.style.opacity = '0';
+			DOM.viewLayer.style.pointerEvents = 'none';
 		}
 	},
 	async renderFileList(searchTerm = '', deepSearch = false) {

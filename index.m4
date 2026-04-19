@@ -81,9 +81,11 @@ m4_define([[PLUGIN]],
 					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
 				</div>
 			</div>
-<div id="editor-container">
-				<div id="view-layer" style="width: 100%; height: 100%; overflow-y: auto; display: none; box-sizing: border-box; padding: 20px;"></div>
-				<div id="edit-layer" style="width: 100%; height: 100%; overflow-y: auto; display: none; box-sizing: border-box; padding: 0;"></div>
+			<div id="editor-container">
+				<div id="view-layer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow-y: auto; visibility: hidden; opacity: 0; pointer-events: none; box-sizing: border-box; padding: 20px;"></div>
+
+				<div id="edit-layer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow-y: auto; visibility: hidden; opacity: 0; pointer-events: none; box-sizing: border-box; padding: 0;"></div>
+
 				<div id="settings-panel"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
