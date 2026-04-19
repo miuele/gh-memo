@@ -90,7 +90,7 @@ const GitHubService = {
 				'Accept': 'application/vnd.github.v3+json',
 				...options.headers
 			},
-			cache: 'no-cache'
+			cache: 'no-store'
 		});
 
 		if (!res.ok) {
@@ -290,7 +290,7 @@ const DropboxService = {
 		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			cache: 'no-cache',
+			cache: 'no-store',
 			body: new URLSearchParams({
 				refresh_token: keychain.refreshToken,
 				grant_type: 'refresh_token',
@@ -315,7 +315,7 @@ const DropboxService = {
 		if (url.includes('/download')) delete headers['Content-Type'];
 
 		initOptions.headers = headers;
-		initOptions.cache = 'no-cache';
+		initOptions.cache = 'no-store';
 		
 		let res = await fetch(url, initOptions);
 

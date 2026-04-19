@@ -2,7 +2,6 @@ const CACHE_NAME = 'notes-cache-v1';
 const urlsToCache = [
   './',
   './index.html',
-  'https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js'
 ];
 
 self.addEventListener('install', event => {
