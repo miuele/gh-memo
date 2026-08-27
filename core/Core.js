@@ -1,3 +1,14 @@
+// Computes a stable string key (the "tree signature") that identifies which
+// remote origin a workspace is rooted in. All workspaces sharing the same
+// signature belong to the same logical file tree ("forest tree").
+// Extracted here to eliminate duplication between the activeTreeSignature
+// getter and the workspaceTrees getter, both of which need the same logic.
+function computeTreeSig(ws, kc) {
+	const provider = kc ? kc.provider : 'github';
+	if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
+	return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+}
+
 const AppState = {
     renderId: 0,
     
@@ -18,38 +29,26 @@ const AppState = {
     get activeTreeSignature() {
         const ws = this.activeWorkspace;
         if (!ws) return null;
-        const kc = this.activeKeychain;
-        const provider = kc ? kc.provider : 'github';
-        
-        // Dropbox instances are isolated strictly by the account token they use
-        if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
-        
-        // Git instances are isolated by their absolute remote origin
-        return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+        return computeTreeSig(ws, this.activeKeychain);
     },
 
     get workspaceTrees() {
         const trees = {};
-        
+
         for (const [id, ws] of Object.entries(this.workspaces)) {
             const kc = this.keychains[ws.keychainId];
-            const provider = kc ? kc.provider : 'github';
-            
-            let sig;
-            if (provider === 'dropbox') sig = `dropbox|${ws.keychainId}`;
-            else sig = `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
-            
+            const sig = computeTreeSig(ws, kc);
             if (!trees[sig]) trees[sig] = [];
             trees[sig].push(id);
         }
 
-        // Sort each tree's workspace IDs by rootDir length (Deepest paths first)
-        // This guarantees the Router will evaluate the most specific "Best Fit" workspace first
+        // Sort each tree's workspace IDs by rootDir length (deepest paths first)
+        // so the Router always evaluates the most specific "Best Fit" workspace first.
         for (const sig in trees) {
             trees[sig].sort((a, b) => {
-                const rootA = (this.workspaces[a].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-                const rootB = (this.workspaces[b].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-                return rootB.length - rootA.length; 
+                const rootA = Utils.cleanPath(this.workspaces[a].rootDir);
+                const rootB = Utils.cleanPath(this.workspaces[b].rootDir);
+                return rootB.length - rootA.length;
             });
         }
 
@@ -77,16 +76,16 @@ const VFS = {
 	// 1. Local -> Global: Gets the absolute forest path for a local file
 	getAbsolutePath(workspaceId, filename) {
 		const ws = AppState.workspaces[workspaceId];
-		if (!ws) return (filename || '').replace(/(^\/+|\/+$)/g, '');
+		if (!ws) return Utils.cleanPath(filename);
 
-		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanRoot = Utils.cleanPath(ws.rootDir);
+		const cleanFile = Utils.cleanPath(filename);
 		return [cleanRoot, cleanFile].filter(Boolean).join('/');
 	},
 
 	// 2. Global -> Local: Slices a forest path down for a specific workspace
 	getRelativePath(workspaceId, absolutePath) {
-		const targetRoot = (AppState.workspaces[workspaceId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const targetRoot = Utils.cleanPath(AppState.workspaces[workspaceId].rootDir);
 		if (targetRoot && absolutePath.startsWith(targetRoot)) {
 			return absolutePath.substring(targetRoot.length).replace(/^\//, '');
 		}
@@ -100,7 +99,7 @@ const VFS = {
 
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
 		return treeWsIds.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
 		});
 	},
@@ -111,13 +110,13 @@ const VFS = {
 		if (!sig) return [];
 
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
-		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const currentRoot = Utils.cleanPath(AppState.activeWorkspace.rootDir);
 		const virtuals = [];
 
 		treeWsIds.forEach(id => {
 			if (id === AppState.activeWorkspaceId) return;
 
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
 				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
 				virtuals.push(relativePath);
@@ -133,7 +132,7 @@ const VFS = {
 		if (!sig) return null;
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
 		return treeWsIds.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			return targetRoot === absolutePath;
 		});
 	},
@@ -168,4 +167,3 @@ function initDOM() {
 	DOM.settingsPanel = document.getElementById('settings-panel');
 	DOM.workspaceIndicator = document.getElementById('workspace-indicator');
 }
-

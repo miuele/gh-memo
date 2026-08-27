@@ -427,10 +427,10 @@ const UI = {
 		rootEl.addEventListener('input', e => ws.rootDir = e.target.value);
 
 		// Leaf Constraint Visualization
-		const currentRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const currentRoot = Utils.cleanPath(ws.rootDir);
 		const hasChildren = wsIds.some(childId => {
 			if (childId === id) return false;
-			const childRoot = (AppState.workspaces[childId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const childRoot = Utils.cleanPath(AppState.workspaces[childId].rootDir);
 			return childRoot.startsWith(currentRoot ? currentRoot + '/' : '');
 		});
 

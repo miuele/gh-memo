@@ -205,9 +205,7 @@ const Actions = {
 					const wsTarget = AppState.workspaces[id];
 					return payloadKeys.every(key => {
 						if (key === 'rootDir') {
-							const wsRoot = (wsTarget.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-							const targetRoot = (payload.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-							return wsRoot === targetRoot;
+							return Utils.cleanPath(wsTarget.rootDir) === Utils.cleanPath(payload.rootDir);
 						}
 						return wsTarget[key] === payload[key];
 					});
@@ -496,15 +494,7 @@ const Actions = {
 			let base64Content;
 
 			if (typeof note.content === 'object' && note.content !== null) {
-				const buffer = await new Response(note.content).arrayBuffer();
-				const bytes = new Uint8Array(buffer);
-
-				let binary = '';
-				const chunkSize = 8192;
-				for (let i = 0; i < bytes.length; i += chunkSize) {
-					binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-				}
-				base64Content = btoa(binary);
+				base64Content = await Utils.blobToBase64(note.content);
 			} else {
 				base64Content = Utils.utoa(String(note.content));
 			}

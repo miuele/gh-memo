@@ -245,6 +245,7 @@ Text: {
 			unmount: function() {
 				this.textarea = null;
 				this.viewLayer = null;
+				this.filename = null;
 			}
 		}),
 },

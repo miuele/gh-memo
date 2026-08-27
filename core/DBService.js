@@ -1,5 +1,11 @@
 const DBService = {
 	storeName: 'notes',
+
+	// Cache of open IDBDatabase promises keyed by db name.
+	// Reusing a single connection per database is the correct IDB pattern —
+	// calling indexedDB.open() on every operation creates unnecessary overhead.
+	_dbCache: {},
+
 	// Dynamically read the database name for the active profile
 	get dbName() {
 		const ws = AppState.activeWorkspace;
@@ -10,17 +16,35 @@ const DBService = {
 	},
 
 	init() {
-		return new Promise((resolve, reject) => {
-			const request = indexedDB.open(this.dbName, 1);
+		const name = this.dbName;
+		if (this._dbCache[name]) return this._dbCache[name];
+
+		this._dbCache[name] = new Promise((resolve, reject) => {
+			const request = indexedDB.open(name, 1);
 			request.onupgradeneeded = (e) => {
 				const db = e.target.result;
 				if (!db.objectStoreNames.contains(this.storeName)) {
 					db.createObjectStore(this.storeName, { keyPath: 'filename' });
 				}
 			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const db = request.result;
+				// If another context deletes this database (e.g. deleteWorkspace),
+				// close the connection and evict the cache so the next init()
+				// opens a fresh handle rather than using a stale one.
+				db.onversionchange = () => {
+					db.close();
+					delete this._dbCache[name];
+				};
+				resolve(db);
+			};
+			request.onerror = () => {
+				delete this._dbCache[name]; // Don't cache failed opens
+				reject(request.error);
+			};
 		});
+
+		return this._dbCache[name];
 	},
 	async put(note) {
 		const db = await this.init();
@@ -106,7 +130,9 @@ const GitHubService = {
 
 	// The VFS Chroot Translator: Converts local filenames to absolute remote paths
 	_getFullPath(rootDir, filename) {
-		const cleanRoot = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const cleanRoot = Utils.cleanPath(rootDir);
+		// Only strip the leading slash from filename — trailing slashes on
+		// file paths would be a bug upstream, but leading ones are routine.
 		const cleanFile = (filename || '').replace(/^\/+/, '');
 		return cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
 	},
@@ -117,7 +143,7 @@ const GitHubService = {
 
 	async _getShallowTree(workspace, keychain) {
 		const { host, owner, repo, branch, rootDir } = workspace;
-		const safePath = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const safePath = Utils.cleanPath(rootDir);
 
 		const url = `${host}/repos/${owner}/${repo}/contents/${safePath}?ref=${branch}`;
 		const res = await this._apiFetch(url, keychain.token);
@@ -135,7 +161,7 @@ const GitHubService = {
 
 	async _getDeepTree(workspace, keychain) {
 		const { host, owner, repo, branch, rootDir } = workspace;
-		const safePath = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const safePath = Utils.cleanPath(rootDir);
 		const treeRev = `${branch}:${safePath}`;
 
 		const url = `${host}/repos/${owner}/${repo}/git/trees/${treeRev}?recursive=1`;
@@ -256,10 +282,10 @@ const DropboxService = {
 	
 	// Converts local filenames to absolute remote Dropbox paths
 	_getFullPath(rootDir, filename = '') {
-		const cleanRoot = (rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanRoot = Utils.cleanPath(rootDir);
+		const cleanFile = Utils.cleanPath(filename);
 		const combined = cleanRoot ? (cleanFile ? `${cleanRoot}/${cleanFile}` : cleanRoot) : cleanFile;
-		return combined ? `/${combined}` : ''; // Dropbox strictly requires a leading slash, root is ""
+		return combined ? `/${combined}` : ''; // Dropbox strictly requires a leading slash; root is ""
 	},
 
 	// Slices the absolute Dropbox path back into a VFS relative path
