@@ -1,12 +1,19 @@
 const UI = {
+	_statusTimerId: null,
+
 	toggleSidebar() {
 		DOM.sidebar.classList.toggle('collapsed');
 	},
 	showStatus(text, isError = false) {
+		// Cancel any in-flight auto-hide so a rapid second call cannot
+		// cause the previous timer to dismiss the new message early.
+		clearTimeout(this._statusTimerId);
 		DOM.statusBar.textContent = text;
 		DOM.statusBar.style.display = 'flex';
 		DOM.statusBar.className = isError ? 'error' : '';
-		if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
+		if (!isError) {
+			this._statusTimerId = setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
+		}
 	},
 	setLayerVisible(layer, isVisible) {
 		layer.style.display = 'block';
@@ -27,6 +34,15 @@ const UI = {
 			);
 		});
 	},
+	// Toggles the editor chrome buttons (pull/push/delete) as a unit.
+	// Both resetEditor and setEditorActive maintain this set — a helper
+	// ensures they stay in sync with no risk of one growing out of step.
+	_setEditorChrome(isOpen) {
+		const display = isOpen ? 'block' : 'none';
+		DOM.pullBtn.style.display = display;
+		DOM.pushBtn.style.display = display;
+		DOM.deleteBtn.style.display = display;
+	},
 	resetEditor() {
 		AppState.isViewMode = false;
 		AppState.currentFilename = null;
@@ -45,9 +61,7 @@ const UI = {
 		this.setLayerVisible(DOM.viewLayer, false);
 
 		DOM.filenameLabel.textContent = 'No file selected';
-		DOM.deleteBtn.style.display = 'none';
-		DOM.pullBtn.style.display = 'none';
-		DOM.pushBtn.style.display = 'none';
+		this._setEditorChrome(false);
 		DOM.statusBar.style.display = 'none';
 		DOM.viewToggle.style.display = 'none';
 		if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
@@ -70,20 +84,21 @@ const UI = {
 		// 1. UNMOUNT
 		if (AppState.activePlugin && AppState.activePlugin.unmount) {
 			AppState.activePlugin.unmount();
+			AppState.activePlugin = null;
 		}
 
 		// 2. NEGOTIATE & INSTANTIATE
 		const pluginHandler = PluginRegistry.find(p => p.canHandle(filename));
 		const plugin = pluginHandler.create();
-		AppState.activePlugin = plugin;
+		// Note: activePlugin is set AFTER a successful mount. If mount() throws, the
+		// previous plugin has already been unmounted but we avoid leaving activePlugin
+		// pointing to a half-initialised instance.
 
 		if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) AppState.isViewMode = true;
 		else if (!plugin.supportedModes.includes('view') && AppState.isViewMode) AppState.isViewMode = false;
 
 		// 3. PREPARE CHROME
-		DOM.pullBtn.style.display = 'block';
-		DOM.pushBtn.style.display = 'block';
-		DOM.deleteBtn.style.display = 'block';
+		this._setEditorChrome(true);
 		DOM.viewLayer.replaceChildren();
 		DOM.editLayer.replaceChildren();
 
@@ -92,6 +107,7 @@ const UI = {
 
 		// 5. MOUNT
 		await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback);
+		AppState.activePlugin = plugin;
 
 		this.applyModeVisibility();
 	},
@@ -113,6 +129,22 @@ const UI = {
 			this.setLayerVisible(DOM.editLayer, true);
 			this.setLayerVisible(DOM.viewLayer, false);
 		}
+	},
+	// Derives the status icon for a file-list entry purely from its note state.
+	// Kept separate from the DOM construction loop so each concern has a single home.
+	_getFileIcon(note) {
+		const isDirty = note.is_dirty;
+		const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
+		if (note.is_folder) return note.is_mount_point ? '🗂️' : '📁';
+		if (note.filename.endsWith('.symlink')) return isDirty ? '🔗🟡' : '🔗';
+		if (isDirty && hasRemoteUpdate) return '🟡⬇️';
+		if (isDirty) return '🟡';
+		if (hasRemoteUpdate) return '⬇️';
+		return '🟢';
+	},
+	// Appends a trailing slash to folder entries so the type is visually unambiguous.
+	_getDisplayName(note) {
+		return note.is_folder ? note.filename + '/' : note.filename;
 	},
 	async renderFileList(searchTerm = '', deepSearch = false) {
 		// 1. Grab a ticket for this specific render request
@@ -162,44 +194,21 @@ const UI = {
 		if (!term) {
 			const parentId = VFS.getParentWorkspace();
 			if (parentId) {
-					const li = h('li', {
-						class: 'file-item',
-						style: 'color: var(--accent); font-weight: bold; background: rgba(0, 102, 204, 0.05);',
-						onclick: () => Actions.switchWorkspace(parentId)
-					}, h('span', {}, '🔙 ../'));
-					
-					DOM.fileList.appendChild(li);
+				const li = h('li', {
+					class: 'file-item parent-nav',
+					onclick: () => Actions.switchWorkspace(parentId)
+				}, h('span', {}, '🔙 ../'));
+
+				DOM.fileList.appendChild(li);
 			}
 		}
 		// ------------------------------------------
 
 		notes.forEach(note => {
-			let icon = '🟢'; 
-			const isDirty = note.is_dirty;
-			const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
-			const isSymlink = note.filename.endsWith('.symlink');
-			const isFolder = note.is_folder;
-
-			let displayName = note.filename;
-
-			// Apply Folder & Symlink styling
-			if (isFolder) {
-				icon = note.is_mount_point ? '🗂️' : '📁';
-				displayName += '/';
-			} else if (isSymlink) {
-				icon = '🔗';
-				if (isDirty) icon = '🔗🟡';
-			} else {
-				// Standard text/binary styling
-				if (isDirty && hasRemoteUpdate) icon = '🟡⬇️'; 
-				else if (isDirty) icon = '🟡';   
-				else if (hasRemoteUpdate) icon = '⬇️';   
-			}
-
 			const li = h('li', {
 				class: 'file-item' + (note.filename === AppState.currentFilename ? ' active' : ''),
 				onclick: () => Actions.openFile(note.filename)
-			}, h('span', {}, icon + ' ' + displayName));
+			}, h('span', {}, this._getFileIcon(note) + ' ' + this._getDisplayName(note)));
 
 			if (deepSearch && note.matchCount) {
 				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + (note.matchCount > 1 ? 'es' : '')));
@@ -217,10 +226,10 @@ const UI = {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header', style: 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);' },
-				h('label', { style: 'display: flex; align-items: center; gap: 10px; cursor: pointer; color: #c98200; font-weight: bold;' },
+				h('label', { class: 'symlink-mode-label' },
 					h('input', { 
 					    type: 'checkbox', 
-					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}), // Omit entirely if false
+					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}),
 					    onchange: e => AppState.isSymlinkEditMode = e.target.checked
 					}),
 					'Symlink Edit Mode (Resets on reload)'
@@ -265,8 +274,8 @@ const UI = {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('button', { 
-				onclick: () => Actions.saveSettings(),
-				style: 'margin-top: 20px; width: 100%; padding: 12px; background: var(--accent); color: white; border: none; font-size: 16px; font-weight: bold; border-radius: 6px;'
+				class: 'settings-save-btn',
+				onclick: () => Actions.saveSettings()
 			}, '💾 Save All Configurations')
 		);
 	},
@@ -377,17 +386,22 @@ const UI = {
 		commitToggle.checked = !!refWs.askForCommitMsg;
 
 		// Bind Events (Propagate changes to ALL workspaces in this tree instantly)
+		// updateTreeTitle is extracted because both ownerEl and repoEl need the same
+		// template — inlining it in each handler caused the string to diverge over time.
+		const updateTreeTitle = () => {
+			titleEl.textContent = `🐙 ${ownerEl.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
+		};
 		selectKc.addEventListener('change', e => {
 			wsIds.forEach(id => AppState.workspaces[id].keychainId = e.target.value);
 			toggleGhVisibility();
 		});
 		ownerEl.addEventListener('input', e => {
 			wsIds.forEach(id => AppState.workspaces[id].owner = e.target.value);
-			titleEl.textContent = `🐙 ${e.target.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
+			updateTreeTitle();
 		});
 		repoEl.addEventListener('input', e => {
 			wsIds.forEach(id => AppState.workspaces[id].repo = e.target.value);
-			titleEl.textContent = `🐙 ${ownerEl.value || '(No Owner)'} / ${e.target.value || '(No Repo)'}`;
+			updateTreeTitle();
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
 		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
@@ -410,10 +424,7 @@ const UI = {
 		const rowClone = rowTemplate.content.cloneNode(true);
 		const rowEl = rowClone.querySelector('.mount-row');
 
-		if (isActive) {
-			rowEl.style.borderColor = 'var(--accent)';
-			rowEl.style.background = '#f0f7ff';
-		}
+		if (isActive) rowEl.classList.add('active');
 
 		const nameEl = rowEl.querySelector('.ws-name');
 		const rootEl = rowEl.querySelector('.ws-rootDir');
