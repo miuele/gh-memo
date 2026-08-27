@@ -61,6 +61,39 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) {
 	#sidebar { width: 100%; position: absolute; height: 100%; z-index: 50; }
 	#sidebar.collapsed { width: 0; }
+
+	/* Strip stays fixed to the left edge above the sidebar overlay.
+	   Width raised to 20px for a reachable finger target; col-resize cursor
+	   suppressed since it has no meaning on touch. */
+	#toggle-sidebar {
+		position: fixed; left: 0; top: 0; height: 100vh; width: 20px;
+		z-index: 55; cursor: default;
+	}
+
+	/* Status bar floats above everything, including the sidebar overlay,
+	   as a standard mobile toast anchored to the bottom of the visual viewport. */
+	#status-bar {
+		position: fixed; bottom: 0; left: 0; width: 100%;
+		box-sizing: border-box; z-index: 60;
+	}
+
+	/* Hide the text labels on pull/push/delete, leaving only the emoji.
+	   Keeps the buttons reachable without crowding the header. */
+	.btn-label { display: none; }
+
+	/* Truncate long filenames with an ellipsis rather than
+	   overflowing into the button group. min-width: 0 is required to
+	   allow a flex child to shrink below its intrinsic content size. */
+	#current-filename {
+		overflow: hidden; text-overflow: ellipsis;
+		white-space: nowrap; min-width: 0;
+	}
+
+	/* Recover the 80px of horizontal padding wasted on narrow screens. */
+	#settings-panel { padding: 15px; }
+
+	/* Increase pin-tag tap target to approach the 44px touch minimum. */
+	.pin-tag { padding: 8px 12px; font-size: 12px; }
 }
 .pin-tag {
 	background: var(--accent); color: white; padding: 3px 8px; border-radius: 12px;

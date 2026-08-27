@@ -110,6 +110,13 @@ const UI = {
 		AppState.activePlugin = plugin;
 
 		this.applyModeVisibility();
+
+		// On mobile the sidebar is a full-screen overlay. Close it automatically
+		// when a file is opened so the editor is immediately visible without a
+		// manual tap on the toggle strip.
+		if (window.innerWidth <= 768 && !DOM.sidebar.classList.contains('collapsed')) {
+			this.toggleSidebar();
+		}
 	},
 
 	applyModeVisibility() {

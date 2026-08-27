@@ -78,9 +78,9 @@ m4_include([[resources.m4]])
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
-					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️ Pull File</button>
-					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️ Push File</button>
-					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
+					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️<span class="btn-label"> Pull File</span></button>
+					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️<span class="btn-label"> Push File</span></button>
+					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">🗑️<span class="btn-label"> Delete</span></button>
 				</div>
 			</div>
 			<div id="editor-container">
