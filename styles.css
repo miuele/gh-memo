@@ -81,18 +81,68 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	   Keeps the buttons reachable without crowding the header. */
 	.btn-label { display: none; }
 
-	/* Truncate long filenames with an ellipsis rather than
-	   overflowing into the button group. min-width: 0 is required to
-	   allow a flex child to shrink below its intrinsic content size. */
+	/* Filename truncation.
+	   - flex: 1 1 0% gives it a definite basis so it can actually shrink,
+	     rather than claiming its full content width and crowding the buttons.
+	   - display: block replaces inline-flex so that overflow/text-overflow
+	     establish a proper block formatting context for the ellipsis to work.
+	   - The button group gets flex: 0 0 auto so it never shrinks or grows,
+	     keeping the emoji buttons at a fixed size regardless of filename length. */
 	#current-filename {
-		overflow: hidden; text-overflow: ellipsis;
-		white-space: nowrap; min-width: 0;
+		display: block;
+		flex: 1 1 0%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+	#editor-header > div { flex: 0 0 auto; }
+
+	/* Settings panel padding.
+	   Left side uses 25px (rather than 15px) so form fields clear the fixed
+	   20px toggle strip and remain tappable without accidentally toggling the sidebar. */
+	#settings-panel { padding: 15px 15px 15px 25px; }
+
+	/* Fix 5b: Edit and view layers need the same left clearance.
+	   Both carry inline style="padding: ..." so !important is required.
+	   - edit-layer has padding: 0, so without this the textarea starts at x=0
+	     and the leftmost column of text sits behind the strip.
+	   - view-layer has padding: 20px, which barely touches the strip edge;
+	     25px gives a consistent breathing margin. */
+	#edit-layer { padding-left: 25px !important; }
+	#view-layer { padding-left: 25px !important; }
+
+	/* Tree-group GitHub fields.
+	   The four fixed-width inputs (100+120+80+150px) total ~480px before gaps —
+	   wider than any phone. Stack them vertically and let each grow to full width.
+	   !important is required because the template carries inline style= widths. */
+	.tree-gh-only {
+		flex-direction: column;
+		align-items: stretch;
+		width: 100%;
+	}
+	.tree-gh-only input[type="text"] { width: 100% !important; }
+
+	/* Mount-point rows.
+	   The row is a horizontal flex with a 150px name field, a growing path field,
+	   a checkbox label, and an action-button group — all in one line. Stack the
+	   content and button sections vertically instead.
+	   !important overrides the inline display/align-items on the template elements. */
+	.mount-row {
+		flex-direction: column !important;
+		align-items: stretch !important;
+	}
+	.mount-row > div:first-child {
+		flex-direction: column;
+		align-items: stretch;
+	}
+	.ws-name { width: 100% !important; }
+	.mount-row > div:last-child {
+		margin-left: 0 !important;
+		justify-content: flex-end;
 	}
 
-	/* Recover the 80px of horizontal padding wasted on narrow screens. */
-	#settings-panel { padding: 15px; }
-
-	/* Increase pin-tag tap target to approach the 44px touch minimum. */
+	/* Pin-tag tap targets. */
 	.pin-tag { padding: 8px 12px; font-size: 12px; }
 }
 .pin-tag {
