@@ -159,6 +159,7 @@ function initDOM() {
 	DOM.viewLayer = document.getElementById('view-layer');
 	DOM.editLayer = document.getElementById('edit-layer');
 	DOM.filenameLabel = document.getElementById('current-filename');
+	DOM.saveBtn = document.getElementById('save-btn');
 	DOM.pullBtn = document.getElementById('pull-btn');
 	DOM.pushBtn = document.getElementById('push-btn');
 	DOM.deleteBtn = document.getElementById('delete-btn');

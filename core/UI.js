@@ -34,11 +34,12 @@ const UI = {
 			);
 		});
 	},
-	// Toggles the editor chrome buttons (pull/push/delete) as a unit.
+	// Toggles the editor chrome buttons (save/pull/push/delete) as a unit.
 	// Both resetEditor and setEditorActive maintain this set — a helper
 	// ensures they stay in sync with no risk of one growing out of step.
 	_setEditorChrome(isOpen) {
 		const display = isOpen ? 'block' : 'none';
+		DOM.saveBtn.style.display = display;
 		DOM.pullBtn.style.display = display;
 		DOM.pushBtn.style.display = display;
 		DOM.deleteBtn.style.display = display;

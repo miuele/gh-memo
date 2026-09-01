@@ -366,6 +366,53 @@ const Actions = {
 		}
 	},
 
+	// Exports the current file to the user's local disk via a browser download.
+	// This is intentionally independent of any remote provider — it works even
+	// for a workspace with no keychain configured at all, since it only reads
+	// from the local IndexedDB cache (plus whatever's live in the editor).
+	async saveFile() {
+		const filename = AppState.currentFilename;
+		if (!filename) return;
+
+		try {
+			const note = await DBService.get(filename);
+			if (!note) return UI.showStatus('Nothing to save: file not found locally.', true);
+
+			// Edits are debounced 500ms before being flushed to IndexedDB (see
+			// handleTyping), so note.content can briefly lag behind what's on
+			// screen. Text-based plugins (Text/Markdown) expose their live
+			// textarea; prefer that. Read-only viewers (Image/PDF/Unsupported)
+			// have no edit buffer, so note.content — the Blob itself — is
+			// already authoritative for them.
+			const plugin = AppState.activePlugin;
+			const liveContent = (plugin && plugin.textarea) ? plugin.textarea.value : note.content;
+
+			const blob = liveContent instanceof Blob
+				? liveContent
+				: new Blob([liveContent ?? ''], { type: 'text/plain;charset=utf-8' });
+
+			// Use only the basename for the download — the full VFS path (e.g.
+			// "docs/notes.md") isn't a valid target for a flat Downloads folder.
+			const basename = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
+
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = basename;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+
+			// Revoke on a delay rather than immediately — some browsers kick off
+			// the download asynchronously and a same-tick revoke can race it.
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+			UI.showStatus(`Saved ${basename} to disk.`);
+		} catch (err) {
+			UI.showStatus(`Save failed: ${err.message}`, true);
+		}
+	},
+
 	async refreshTree() {
 		try {
 			UI.showStatus('Refreshing file list remotely...');
