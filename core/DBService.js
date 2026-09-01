@@ -107,7 +107,7 @@ const GitHubService = {
 
 	// Internal API fetcher for clean error handling and boilerplate reduction
 	async _apiFetch(url, token, options = {}) {
-		const res = await fetch(url, {
+		const res = await Utils.fetchWithTimeout(url, {
 			...options,
 			headers: {
 				'Authorization': `token ${token}`,
@@ -313,7 +313,7 @@ const DropboxService = {
 	},
 
 	async _refreshAccessToken(keychain) {
-		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+		const res = await Utils.fetchWithTimeout('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			cache: 'no-store',
@@ -343,7 +343,7 @@ const DropboxService = {
 		initOptions.headers = headers;
 		initOptions.cache = 'no-store';
 		
-		let res = await fetch(url, initOptions);
+		let res = await Utils.fetchWithTimeout(url, initOptions);
 
 		// Intercept Auth Failures and Auto-Refresh
 		if (res.status === 401 && keychain.refreshToken) {
@@ -354,7 +354,7 @@ const DropboxService = {
 			if (url.includes('/download')) delete retryHeaders['Content-Type'];
 			
 			initOptions.headers = retryHeaders;
-			res = await fetch(url, initOptions);
+			res = await Utils.fetchWithTimeout(url, initOptions);
 		}
 		
 		return res;

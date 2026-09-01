@@ -612,7 +612,7 @@ const Actions = {
 
 		try {
 			const redirectUri = window.location.origin + window.location.pathname;
-			const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+			const res = await Utils.fetchWithTimeout('https://api.dropboxapi.com/oauth2/token', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
