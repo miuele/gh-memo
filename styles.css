@@ -143,15 +143,25 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	}
 
 	/* Pin-tag tap targets. */
-	.pin-tag { padding: 8px 12px; font-size: 12px; }
+	.pin-tag { padding: 8px 12px; font-size: 15px; }
 }
 .pin-tag {
 	background: var(--accent); color: white; padding: 3px 8px; border-radius: 12px;
-	font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+	font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;
 	box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+	/* Pin tags are <span>s with a click handler, not real <button>s, so unlike
+	   buttons they don't get the browser's default no-select/no-tap-highlight
+	   treatment. Without this, tapping one on mobile triggers native text
+	   selection (highlight + selection handles) and a tap-highlight flash. */
+	user-select: none; -webkit-user-select: none;
+	-webkit-tap-highlight-color: transparent;
 }
 .pin-tag:hover { background: #005bb5; }
-.pin-rm { font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1; }
+.pin-rm {
+	font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1;
+	user-select: none; -webkit-user-select: none;
+	-webkit-tap-highlight-color: transparent;
+}
 .pin-rm:hover { color: white; }
 #settings-panel {
 	flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 40px;
