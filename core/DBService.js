@@ -6,6 +6,35 @@ const DBService = {
 	// calling indexedDB.open() on every operation creates unnecessary overhead.
 	_dbCache: {},
 
+	// Ceiling for any single local IndexedDB operation — opening the
+	// connection, or a get/put/delete/etc request within it.
+	//
+	// Unlike fetch()'s AbortController, an IDBRequest has no abort()/cancel();
+	// a "timeout" here can't literally cancel the underlying browser-internal
+	// request. What it CAN do is stop the app from awaiting it forever,
+	// surface a clear error instead of a silent hang, and evict the cached
+	// connection so the next attempt opens a fresh one instead of re-awaiting
+	// a request that may never settle. This matters because Chrome on Android
+	// has a known behavior where a backgrounded/frozen PWA can leave an
+	// in-flight IndexedDB request permanently pending after the page resumes
+	// — and since _dbCache reuses one Promise per db name, a single wedged
+	// open() previously poisoned every future read/write for that workspace
+	// until a full reload.
+	DB_TIMEOUT_MS: 8000,
+
+	// Races `promise` against a timer. Whichever settles first wins; the
+	// loser is left to resolve/reject into the void (IDB gives us no way to
+	// actually cancel it).
+	_guardWithTimeout(promise, label) {
+		let timer;
+		const timeout = new Promise((_, reject) => {
+			timer = setTimeout(() => {
+				reject(new Error(`${label} timed out. If this keeps happening, try reloading the app.`));
+			}, this.DB_TIMEOUT_MS);
+		});
+		return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+	},
+
 	// Dynamically read the database name for the active profile
 	get dbName() {
 		const ws = AppState.activeWorkspace;
@@ -19,7 +48,7 @@ const DBService = {
 		const name = this.dbName;
 		if (this._dbCache[name]) return this._dbCache[name];
 
-		this._dbCache[name] = new Promise((resolve, reject) => {
+		const openPromise = new Promise((resolve, reject) => {
 			const request = indexedDB.open(name, 1);
 			request.onupgradeneeded = (e) => {
 				const db = e.target.result;
@@ -38,62 +67,85 @@ const DBService = {
 				};
 				resolve(db);
 			};
-			request.onerror = () => {
-				delete this._dbCache[name]; // Don't cache failed opens
-				reject(request.error);
-			};
+			request.onerror = () => reject(request.error);
 		});
 
-		return this._dbCache[name];
+		const guarded = this._guardWithTimeout(openPromise, `Opening local database`);
+
+		// On timeout OR a native open() error, evict the cache entry so the
+		// next init() call starts a fresh indexedDB.open() rather than
+		// re-awaiting this same (possibly forever-pending) request. Guard
+		// against a race with a later attempt already having replaced us.
+		guarded.catch(() => {
+			if (this._dbCache[name] === guarded) delete this._dbCache[name];
+		});
+
+		this._dbCache[name] = guarded;
+		return guarded;
 	},
-	async put(note) {
+
+	// Runs a single IDB operation against the open db handle, under the same
+	// timeout guard as init(). On failure, evicts the cached connection too —
+	// a wedged transaction is a strong signal the connection itself is dead,
+	// so the best recovery is a fresh indexedDB.open() on the next call.
+	async _run(executor, label) {
+		const name = this.dbName;
 		const db = await this.init();
-		return new Promise((resolve) => {
+		try {
+			return await this._guardWithTimeout(executor(db), label);
+		} catch (err) {
+			delete this._dbCache[name];
+			throw err;
+		}
+	},
+
+	async put(note) {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readwrite');
 			tx.objectStore(this.storeName).put(note);
 			tx.oncomplete = () => resolve();
-		});
+			tx.onerror = () => reject(tx.error);
+		}), 'Saving note');
 	},
 	async get(filename) {
-		const db = await this.init();
-		return new Promise((resolve) => {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readonly');
 			const request = tx.objectStore(this.storeName).get(filename);
 			request.onsuccess = () => resolve(request.result);
-		});
+			request.onerror = () => reject(request.error);
+		}), 'Reading note');
 	},
 	async getAll() {
-		const db = await this.init();
-		return new Promise((resolve) => {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readonly');
 			const request = tx.objectStore(this.storeName).getAll();
 			request.onsuccess = () => resolve(request.result);
-		});
+			request.onerror = () => reject(request.error);
+		}), 'Reading notes');
 	},
 	async delete(filename) {
-		const db = await this.init();
-		return new Promise((resolve) => {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readwrite');
 			tx.objectStore(this.storeName).delete(filename);
 			tx.oncomplete = () => resolve();
-		});
+			tx.onerror = () => reject(tx.error);
+		}), 'Deleting note');
 	},
 	async getAllKeys() {
-		const db = await this.init();
-		return new Promise((resolve) => {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readonly');
 			const request = tx.objectStore(this.storeName).getAllKeys();
 			request.onsuccess = () => resolve(request.result);
-		});
+			request.onerror = () => reject(request.error);
+		}), 'Reading note list');
 	},
 	async clear() {
-		const db = await this.init();
-		return new Promise((resolve, reject) => {
+		return this._run(db => new Promise((resolve, reject) => {
 			const tx = db.transaction(this.storeName, 'readwrite');
 			tx.objectStore(this.storeName).clear();
 			tx.oncomplete = () => resolve();
 			tx.onerror = () => reject(tx.error);
-		});
+		}), 'Clearing local cache');
 	}
 };
 

@@ -183,7 +183,14 @@ const Actions = {
 		}
 		// ----------------------------------
 
-		const note = await DBService.get(filename);
+		let note;
+		try {
+			note = await DBService.get(filename);
+		} catch (err) {
+			// Most likely a wedged IndexedDB connection (see DBService.DB_TIMEOUT_MS)
+			// — without this, a click here would previously do nothing at all.
+			return UI.showStatus(`Couldn't open ${filename}: ${err.message}`, true);
+		}
 		if (!note) return;
 
 		// --- 2. UNMOUNTED FOLDER INTERCEPTOR ---

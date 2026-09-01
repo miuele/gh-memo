@@ -23,6 +23,21 @@ AppState.syncChannel.onmessage = (event) => {
 	}
 };
 
+// Safety net: several click handlers (openFile, createFile, addPin, ...) call
+// DBService directly without their own try/catch, on the assumption that
+// local IndexedDB reads/writes essentially never fail. That's no longer true
+// now that DBService operations can time out (see DBService.DB_TIMEOUT_MS) —
+// e.g. after Chrome/Android freezes a backgrounded PWA and IndexedDB comes
+// back wedged. Rather than auditing every call site, catch anything that
+// slips through here so a failure always surfaces in the status bar instead
+// of silently doing nothing (which is the exact symptom this is fixing).
+window.addEventListener('unhandledrejection', (event) => {
+	const message = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+	console.error('Unhandled rejection:', event.reason);
+	UI.showStatus(`⚠️ ${message}`, true);
+	event.preventDefault();
+});
+
 window.addEventListener('DOMContentLoaded', async () => {
     // 1. Capture the DOM nodes
     initDOM();
