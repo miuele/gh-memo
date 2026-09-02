@@ -160,7 +160,7 @@ const Actions = {
 		AppState.currentFilename = null;
 		history.replaceState(null, null, window.location.pathname);
 
-		DOM.filenameLabel.textContent = '⚙️ Settings & Profiles';
+		DOM.filenameLabel.textContent = 'Settings & Profiles';
 
 		UI.setLayerVisible(DOM.editLayer, false);
 		UI.setLayerVisible(DOM.viewLayer, false);

@@ -117,12 +117,12 @@ m4_include([[resources.m4]])
                 <label>App Key</label>
                 <div style="display: flex; gap: 10px; width: 100%;">
                     <input type="text" class="kc-appkey" style="flex-grow: 1;">
-                    <button class="btn-link-dbx" style="white-space: nowrap;">🔗 Link to Dropbox</button>
+                    <button class="btn-link-dbx" style="white-space: nowrap;">Link to Dropbox</button>
                 </div>
                 <div class="dbx-status" style="margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
             </div>
         </div>
-        <button class="btn-delete" style="color: var(--danger); margin-top: 10px;">🗑️ Delete Keychain</button>
+        <button class="btn-delete" style="color: var(--danger); margin-top: 10px;">Delete Keychain</button>
     </div>
 </template>
 

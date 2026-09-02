@@ -142,10 +142,12 @@ const UI = {
 	// Kept separate from the DOM construction loop so each concern has a single home.
 	_getFileIcon(note) {
 		const isDirty = note.is_dirty;
+		const localOnly = !note.remote_sha
 		const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
 		if (note.is_folder) return note.is_mount_point ? '🗂️' : '📁';
-		if (note.filename.endsWith('.symlink')) return isDirty ? '🔗🟡' : '🔗';
+		/* if (note.filename.endsWith('.symlink')) return '🔗'; */
 		if (isDirty && hasRemoteUpdate) return '🟡⬇️';
+		if (localOnly) return '';
 		if (isDirty) return '🟡';
 		if (hasRemoteUpdate) return '⬇️';
 		return '🟢';
@@ -240,7 +242,7 @@ const UI = {
 					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}),
 					    onchange: e => AppState.isSymlinkEditMode = e.target.checked
 					}),
-					'Symlink Edit Mode (Resets on reload)'
+					'Edit Symlink'
 				)
 			)
 		);
