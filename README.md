@@ -19,6 +19,35 @@ Requires `m4` and `make`.
 1. Run `make` to build the project. `index.html` is generated in `dist/`.
 2. Run `make serve` to start a local development server.
 
+`dist/index.html` is self-contained and also runs when opened directly from disk (`file://`), except for offline caching and Dropbox linking, which need it to be served over http(s).
+
+Optional, with Node.js installed (no packages needed):
+- `make test` runs the unit tests in `tests/` with Node's built-in test runner.
+- `make check` syntax-checks every module.
+
+`tests/e2e/smoke.cjs` is an end-to-end smoke test of the built app with GitHub and Dropbox mocked. It needs Playwright and is not part of the build; see the header of the file.
+
+## Project Layout
+The source is split into small modules under `src/`. Each file registers one module with a tiny loader (`src/define.js`), naming its dependencies explicitly:
+
+```js
+define('ui/pins', ['ui/refs', 'lib/dom', 'model/forest'], (DOM, Dom, Forest) => { /* ... */ return api; });
+```
+
+`make` copies every module verbatim into `index.html` as its own inline `<script>`, and `app/boot` starts the app. Only `resources.m4` (the CDN URLs and SRI hashes, shared with the service worker) goes through m4 macro expansion.
+
+Each layer depends only on the layers above it:
+
+| Directory | Contents |
+|---|---|
+| `lib/` | Helpers with no app state: paths, file types, encoding, network timeouts, DOM builder, PKCE, the cross-tab channel |
+| `model/` | `config` (the only `localStorage` user), `forest` (workspace trees and path mapping), `symlink` |
+| `storage/`, `remote/` | The IndexedDB cache, the GitHub and Dropbox providers, Dropbox OAuth, the provider facade |
+| `plugins/` | One file per file type, plus `registry` (see `src/plugins/README.md`) |
+| `ui/` | Views. They render and report user input through callbacks, and never call actions directly |
+| `actions/` | What the user can do: files, sync, pins, workspaces, keychains, settings |
+| `app/` | `boot` (wires views to actions and maps `data-action` attributes), routing, shortcuts, paste, cross-tab handling |
+
 ## Configuration & Authentication
 To sync your files, you need to configure a Keychain with appropriate credentials:
 - **GitHub**: Use a Fine-grained Personal Access Token (PAT). For security, it is recommended to scope the token only to the specific repositories you intend to edit, granting "Contents" read and write permissions.
