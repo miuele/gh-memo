@@ -5,11 +5,11 @@ define('app/boot',
 	['model/config', 'remote/dropboxAuth',
 	 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/pins', 'ui/indicator', 'ui/settings', 'ui/sidebar', 'ui/status',
 	 'actions/files', 'actions/sync', 'actions/pins', 'actions/workspaces', 'actions/keychains', 'actions/settings',
-	 'app/router', 'app/shortcuts', 'app/paste', 'app/crossTab'],
+	 'app/router', 'app/shortcuts', 'app/paste', 'app/crossTab', 'app/serviceWorker'],
 	(Config, DropboxAuth,
 	 DOM, Editor, FileList, PinsView, Indicator, SettingsView, Sidebar, Status,
 	 Files, Sync, Pins, Workspaces, Keychains, Settings,
-	 Router, Shortcuts, Paste, CrossTab) => {
+	 Router, Shortcuts, Paste, CrossTab, ServiceWorker) => {
 
 	// Everything a data-action="..." attribute in index.html can trigger.
 	const actions = {
@@ -27,7 +27,10 @@ define('app/boot',
 	};
 
 	const bindViews = () => {
-		Editor.bind({ onEdit: (content) => Files.handleTyping(content) });
+		Editor.bind({
+			onEdit: (content) => Files.handleTyping(content),
+			onLeave: () => Files.flushPendingEdit(),
+		});
 		FileList.bind({
 			open: (filename) => Files.open(filename),
 			goUp: (workspaceId) => Workspaces.switchTo(workspaceId),
@@ -53,6 +56,7 @@ define('app/boot',
 
 	const installGlobalListeners = () => {
 		CrossTab.install();
+		ServiceWorker.install();
 		Router.install();
 		Shortcuts.install();
 		Paste.install();
@@ -75,6 +79,13 @@ define('app/boot',
 			console.error('Unhandled rejection:', event.reason);
 			Status.show(`⚠️ ${message}`, true);
 			event.preventDefault();
+		});
+
+		// Save the debounced edit when the page goes away. On mobile, 'hidden'
+		// is often the last event a backgrounded page gets before it is killed.
+		window.addEventListener('pagehide', () => Files.flushPendingEdit());
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') Files.flushPendingEdit();
 		});
 
 		window.addEventListener('offline', () => Status.show('📴 You are offline. Changes will save locally.', true));

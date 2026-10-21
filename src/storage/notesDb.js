@@ -47,8 +47,10 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			return ws.dbName;
 		},
 
-		init() {
-			const name = this.dbName;
+		// Every operation below takes an optional `dbName`, for callers that must
+		// keep writing to the workspace they started in after the user switches
+		// away (a delayed autosave, a push or pull still waiting on the network).
+		init(name = this.dbName) {
 			if (this._dbCache[name]) return this._dbCache[name];
 
 			const openPromise = new Promise((resolve, reject) => {
@@ -91,9 +93,8 @@ define('storage/notesDb', ['model/config'], (Config) => {
 		// timeout guard as init(). On failure, evicts the cached connection too —
 		// a wedged transaction is a strong signal the connection itself is dead,
 		// so the best recovery is a fresh indexedDB.open() on the next call.
-		async _run(executor, label) {
-			const name = this.dbName;
-			const db = await this.init();
+		async _run(executor, label, name = this.dbName) {
+			const db = await this.init(name);
 			try {
 				return await this._guardWithTimeout(executor(db), label);
 			} catch (err) {
@@ -102,22 +103,22 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}
 		},
 
-		async put(note) {
+		async put(note, dbName) {
 			return this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).put(note);
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-			}), 'Saving note');
+			}), 'Saving note', dbName);
 		},
-		async get(filename) {
+		async get(filename, dbName) {
 			return this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readonly');
 				const request = tx.objectStore(this.storeName).get(filename);
 				request.onsuccess = () => resolve(request.result);
 				request.onerror = () => reject(request.error);
-			}), 'Reading note');
+			}), 'Reading note', dbName);
 		},
 		async getAll() {
 			return this._run(db => new Promise((resolve, reject) => {

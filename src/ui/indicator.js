@@ -1,5 +1,5 @@
 // The active-workspace label at the top of the sidebar.
-define('ui/indicator', ['ui/refs', 'model/config'], (DOM, Config) => ({
+define('ui/indicator', ['ui/refs', 'model/config', 'buildInfo'], (DOM, Config, BuildInfo) => ({
 	update() {
 		if (!DOM.workspaceIndicator) return;
 
@@ -20,5 +20,6 @@ define('ui/indicator', ['ui/refs', 'model/config'], (DOM, Config) => ({
 		} else {
 			DOM.workspaceIndicator.title = `Provider: Dropbox\nRoot: ${ws.rootDir || '/'}`;
 		}
+		DOM.workspaceIndicator.title += `\n\n${BuildInfo.label}`;
 	},
 }));

@@ -27,7 +27,7 @@ test('every data-action in index.m4 is handled by app/boot', () => {
 });
 
 test('layering: modules only depend on the same or lower layers', () => {
-	const rank = { lib: 0, resources: 0, model: 1, storage: 2, remote: 2, plugins: 3, ui: 3, actions: 4, app: 5 };
+	const rank = { lib: 0, resources: 0, buildInfo: 0, model: 1, storage: 2, remote: 2, plugins: 3, ui: 3, actions: 4, app: 5 };
 	const layerOf = (name) => rank[name.split('/')[0]];
 	for (const file of moduleFiles()) {
 		const src = fs.readFileSync(file, 'utf8');

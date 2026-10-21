@@ -6,15 +6,37 @@ define('actions/files',
 	(Config, Forest, Symlink, DBService, SyncService, Tabs, FileTypes,
 	 DOM, Editor, FileList, Sidebar, Status, Workspaces) => {
 
+	// The debounced autosave: { filename, dbName, content } waiting for typingTimer.
 	let typingTimer = null;
+	let pendingEdit = null;
+	// Chain of autosave writes, so flushes complete in order.
+	let writing = Promise.resolve();
 	// When on, .symlink files open in the editor instead of being followed.
 	let isSymlinkEditMode = false;
+
+	// Saves one edit into the file and workspace it was typed in. A note that
+	// is gone (deleted, cache cleared) is not recreated.
+	const saveEdit = async ({ filename, dbName, content }) => {
+		try {
+			const note = await DBService.get(filename, dbName);
+			if (!note || note.content === content) return;
+			note.content = content;
+			note.is_dirty = true;
+			await DBService.put(note, dbName);
+
+			Tabs.post({ type: Tabs.LOCAL_EDIT, filename });
+			if (dbName === DBService.dbName) FileList.render(DOM.searchBar.value, false);
+		} catch (err) {
+			Status.show(`Couldn't save ${filename}: ${err.message}`, true);
+		}
+	};
 
 	const Files = {
 		isSymlinkEditMode: () => isSymlinkEditMode,
 		setSymlinkEditMode(value) { isSymlinkEditMode = value; },
 
 		async open(filename, skipHistory = false) {
+			await Files.flushPendingEdit();
 			const absolutePath = Forest.getAbsolutePath(Config.activeWorkspaceId, filename);
 			const matchedId = Forest.getExactMount(absolutePath);
 
@@ -151,27 +173,37 @@ define('actions/files',
 			Status.show(`Successfully saved ${filename}.`);
 		},
 
-		// Debounced autosave from the editor.
+		// Debounced autosave from the editor. The target file and database are
+		// captured now, not when the timer fires: by then the user may have
+		// opened another file or switched workspace.
 		handleTyping(newContent) {
-			if (!Editor.currentFilename()) return;
+			const filename = Editor.currentFilename();
+			if (!filename) return;
+			const dbName = DBService.dbName;
+
+			if (pendingEdit && (pendingEdit.filename !== filename || pendingEdit.dbName !== dbName)) {
+				Files.flushPendingEdit();
+			}
 			clearTimeout(typingTimer);
+			pendingEdit = { filename, dbName, content: newContent };
+			typingTimer = setTimeout(() => Files.flushPendingEdit(), 500);
+		},
 
-			typingTimer = setTimeout(async () => {
-				const note = await DBService.get(Editor.currentFilename());
-				if (note && note.content !== newContent) {
-					note.content = newContent;
-					note.is_dirty = true;
-					await DBService.put(note);
-
-					Tabs.post({ type: Tabs.LOCAL_EDIT, filename: Editor.currentFilename() });
-					FileList.render(DOM.searchBar.value, false);
-				}
-			}, 500);
+		// Writes the debounced edit now, if there is one. Anything that reads a
+		// note back, replaces the editor or leaves the page awaits this first.
+		// Resolves once every write started so far has finished.
+		flushPendingEdit() {
+			clearTimeout(typingTimer);
+			const edit = pendingEdit;
+			pendingEdit = null;
+			if (edit) writing = writing.then(() => saveEdit(edit));
+			return writing;
 		},
 
 		async remove() {
 			const filename = Editor.currentFilename();
 			if (!filename) return;
+			await Files.flushPendingEdit();
 			const note = await DBService.get(filename);
 			if (!note) return;
 
@@ -203,12 +235,12 @@ define('actions/files',
 			if (!filename) return;
 
 			try {
+				await Files.flushPendingEdit();
 				const note = await DBService.get(filename);
 				if (!note) return Status.show('Nothing to save: file not found locally.', true);
 
-				// Edits are debounced 500ms before being flushed to IndexedDB (see
-				// handleTyping), so note.content can briefly lag behind what's on
-				// screen. Text-based plugins (Text/Markdown) expose their live
+				// The flush above saved the last debounced edit, but a keystroke
+				// can still land after it. Text-based plugins (Text/Markdown) expose their live
 				// textarea; prefer that. Read-only viewers (Image/PDF/Unsupported)
 				// have no edit buffer, so note.content — the Blob itself — is
 				// already authoritative for them.

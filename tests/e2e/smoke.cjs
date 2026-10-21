@@ -8,7 +8,10 @@
 // set, in which case they are served from local copies (and SRI is bypassed,
 // since local copies are not byte-identical to the CDN builds).
 //
-// Env: PLAYWRIGHT_PATH (where to require playwright from), CDN_DIR.
+// The service-worker section temporarily rewrites the served dist/sw.js
+// (DIST_DIR to point elsewhere) and restores it when done.
+//
+// Env: PLAYWRIGHT_PATH (where to require playwright from), CDN_DIR, DIST_DIR.
 
 const fs = require('fs');
 const path = require('path');
@@ -231,6 +234,9 @@ async function settingsAndGithub(browser) {
 
 	await page.click('button:has-text("Setup")');
 	check(await header(page) === 'Settings & Profiles', 'settings opens');
+	const built = await page.textContent('.build-info').catch(() => '');
+	check(/^Built \d{4}-\d\d-\d\d \d\d:\d\d UTC/.test(built), 'settings shows the build date', built);
+	check((await page.getAttribute('#workspace-indicator', 'title')).endsWith(`\n\n${built}`), 'workspace tooltip shows the build date');
 	check(await page.$$eval('.profile-card', e => e.length) === 1 && await page.$$eval('.tree-group', e => e.length) === 1, 'one keychain card and one tree');
 	page.dialogs.push('Work');
 	await page.click('button:has-text("+ New Keychain")');
@@ -461,6 +467,132 @@ async function crossTab(browser) {
 	await ctx.close();
 }
 
+async function editRaces(browser) {
+	console.log('edit races');
+	const page = await newApp(browser);
+	await open(page);
+
+	// A1: the autosave timer must write into the file it was typed in.
+	await createFile(page, 'a.txt', 'A');
+	await createFile(page, 'b.txt', 'B');
+	await page.fill('#edit-layer textarea', 'B typed');
+	await clickFile(page, 'a.txt');          // well inside the 500 ms debounce
+	await page.waitForTimeout(800);
+	let a = await db(page, 'a.txt'), b = await db(page, 'b.txt');
+	check(a.content === 'A' && b.content === 'B typed', 'type then switch file: edit lands in the file it was typed in', [a.content, b.content]);
+	check(await page.inputValue('#edit-layer textarea') === 'A', 'switched file shows its own content');
+
+	// Switching straight back must show the edit, not the stale stored copy.
+	await page.fill('#edit-layer textarea', 'A typed');
+	await clickFile(page, 'b.txt');
+	await clickFile(page, 'a.txt');
+	await page.waitForTimeout(300);
+	check(await page.inputValue('#edit-layer textarea') === 'A typed', 'type, switch away and back: editor shows the edit');
+
+	// Leaving for Settings saves too.
+	await page.fill('#edit-layer textarea', 'A settings');
+	await page.click('button:has-text("Setup")');
+	a = await db(page, 'a.txt');
+	check(a.content === 'A settings', 'opening Settings flushes the pending edit', a.content);
+
+	// A2: typing while a push or pull is on the network must survive it.
+	const puts = [];
+	await page.route('https://api.github.com/**', async route => {
+		const req = route.request();
+		const u = new URL(req.url());
+		const json = (o) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(o), headers: { 'access-control-allow-origin': '*' } });
+		if (u.pathname === '/repos/o/r/git/trees/main:') return json({ tree: [{ path: 'r.md', type: 'blob', sha: 's1', size: 2 }] });
+		await new Promise(r => setTimeout(r, 1500));  // slow network: autosave fires mid-request
+		if (req.method() === 'PUT') { puts.push(JSON.parse(req.postData())); return json({ content: { sha: 's2' } }); }
+		return json({ content: b64('v1'), sha: 's1' });
+	});
+	await page.fill('.kc-token', 'tok');
+	await page.fill('.tree-owner', 'o');
+	await page.fill('.tree-repo', 'r');
+	await page.click('button:has-text("Save All Configurations")');
+	await page.click('button:has-text("Refresh List")');
+	await page.waitForTimeout(300);
+	await clickFile(page, 'r.md');
+	await page.waitForTimeout(200);
+
+	await page.click('#pull-btn');
+	await page.waitForTimeout(200);
+	await page.fill('#edit-layer textarea', 'typed during pull');
+	page.dialogs.push('i');                         // conflict prompt: keep local
+	await page.waitForTimeout(2000);
+	let r = await db(page, 'r.md');
+	check(r.content === 'typed during pull' && r.is_dirty && r.last_synced_sha === 's1', 'type during pull: edit kept, note stays dirty', r);
+	check(await page.inputValue('#edit-layer textarea') === 'typed during pull', 'type during pull: editor keeps the edit');
+
+	await page.fill('#edit-layer textarea', 'v1');
+	await page.waitForTimeout(700);
+	await page.keyboard.press('Control+s');
+	await page.waitForTimeout(200);
+	await page.fill('#edit-layer textarea', 'v1 v2');
+	await page.waitForTimeout(2000);
+	r = await db(page, 'r.md');
+	check(puts.length === 1 && Buffer.from(puts[0].content, 'base64').toString() === 'v1', 'type during push: the pushed text is the text at Ctrl+S', puts);
+	check(r.content === 'v1 v2' && r.is_dirty && r.last_synced_sha === 's2', 'type during push: edit kept, note stays dirty with the new sha', r);
+	check(await page.inputValue('#edit-layer textarea') === 'v1 v2', 'type during push: editor keeps the edit');
+
+	check(page.errors.length === 0, 'no page errors', page.errors);
+	await page.context().close();
+}
+
+// B1 + B3 with a real service worker. The served sw.js on disk (DIST_DIR,
+// default ../../dist) is rewritten during the test and restored afterwards:
+// its CDN entries are dropped, since routes can't serve a worker's own
+// requests, and a second build is simulated by changing its cache name.
+// Skipped when that file is missing.
+async function serviceWorkerUpdate(browser) {
+	console.log('service worker');
+	const swFile = path.join(process.env.DIST_DIR || path.join(__dirname, '..', '..', 'dist'), 'sw.js');
+	if (!APP_URL.startsWith('http') || !fs.existsSync(swFile)) return console.log(`  skip (needs http and ${swFile})`);
+	const original = fs.readFileSync(swFile, 'utf8');
+	let served = 0;
+	const serve = (text) => {
+		fs.writeFileSync(swFile, text.replace(/^\s*'https:\/\/[^\n]*\n/gm, ''));
+		// Servers like python's http.server compare whole seconds and would
+		// answer the update check with 304.
+		const mtime = new Date(Date.now() + 10000 * ++served);
+		fs.utimesSync(swFile, mtime, mtime);
+	};
+
+	const ctx = await browser.newContext({ serviceWorkers: 'allow' });
+	try {
+		serve(original);
+		const page = await ctx.newPage();
+		const cacheNames = () => page.evaluate(() => caches.keys());
+		const offerText = () => page.evaluate(() => {
+			const bar = document.getElementById('status-bar');
+			return bar.className === 'offer' && bar.style.display !== 'none' ? bar.textContent : '';
+		});
+
+		await page.goto(APP_URL);
+		await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 10000 }).catch(() => {});
+		await page.evaluate(() => { window.firstLoad = true; });
+		await page.waitForTimeout(300);
+		const id = await page.evaluate(() => define.require('buildInfo').id);
+		check(JSON.stringify(await cacheNames()) === JSON.stringify([`notes-cache-${id}`]), 'cache is named after the build', await cacheNames());
+		check(await page.evaluate(() => window.firstLoad === true) && await offerText() === '', 'first install neither reloads nor offers an update');
+
+		serve(original.replace(/(const CACHE_NAME = CACHE_PREFIX \+ ')[^']+/, '$1next-build'));
+		await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
+		await page.waitForFunction(() => document.getElementById('status-bar').className === 'offer', null, { timeout: 10000 }).catch(() => {});
+		check((await offerText()).startsWith('New version available'), 'new build waiting: status bar offers a reload', await offerText());
+		check((await cacheNames()).includes('notes-cache-next-build'), 'new build gets a new cache name', await cacheNames());
+		await page.click('#status-bar button:has-text("Reload")', { timeout: 2000 }).catch(() => {});
+		await page.waitForFunction(() => !window.firstLoad, null, { timeout: 5000 }).catch(() => {});
+		await page.waitForTimeout(500);
+		check(await page.evaluate(() => !window.firstLoad), 'Reload reloads the page');
+		check(JSON.stringify(await cacheNames()) === JSON.stringify(['notes-cache-next-build']), 'old cache deleted on activate', await cacheNames());
+		check(await offerText() === '', 'no offer after reloading into the new build');
+	} finally {
+		fs.writeFileSync(swFile, original);
+		await ctx.close();
+	}
+}
+
 (async () => {
 	const browser = await chromium.launch();
 	try {
@@ -469,6 +601,8 @@ async function crossTab(browser) {
 		const markers = await settingsAndGithub(browser);
 		await dropbox(browser);
 		await crossTab(browser);
+		await editRaces(browser);
+		await serviceWorkerUpdate(browser);
 		if (process.env.PRINT_MARKERS) console.log(JSON.stringify(markers));
 	} finally {
 		await browser.close();

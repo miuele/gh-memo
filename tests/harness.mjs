@@ -21,6 +21,7 @@ const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
 export const moduleFiles = () => [
 	...walk(path.join(ROOT, 'src')).filter(f => !f.endsWith(path.join('src', 'define.js'))).sort(),
 	path.join(ROOT, 'build', 'resources.js'),
+	path.join(ROOT, 'build', 'buildInfo.js'),
 ];
 
 export const relative = (file) => path.relative(ROOT, file);

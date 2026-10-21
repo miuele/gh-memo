@@ -1,7 +1,7 @@
 // The settings screen: keychains (credentials) and the workspace forest
 // (one group per origin tree, one row per mount point). Inputs edit the
 // in-memory config directly; handlers.save() persists it.
-define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/forest'], (DOM, Dom, Path, Config, Forest) => {
+define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/forest', 'buildInfo'], (DOM, Dom, Path, Config, Forest, BuildInfo) => {
 	const { h } = Dom;
 	let handlers = {};
 
@@ -256,6 +256,11 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 					class: 'settings-save-btn',
 					onclick: () => handlers.save()
 				}, '💾 Save All Configurations')
+			);
+
+			// If this doesn't match your last build, you're looking at a stale copy.
+			DOM.settingsPanel.appendChild(
+				h('div', { class: 'build-info', style: 'margin-top: 20px; font-size: 12px; color: #666; text-align: center;' }, BuildInfo.label)
 			);
 		},
 	};

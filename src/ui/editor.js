@@ -6,7 +6,7 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	let isViewMode = false;
 	let activePlugin = null;
 	let isFrozen = false;
-	let handlers = { onEdit() {} };
+	let handlers = { onEdit() {}, onLeave() {} };
 
 	const setLayerVisible = (layer, isVisible) => {
 		layer.style.display = 'block';
@@ -34,7 +34,8 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	};
 
 	const Editor = {
-		// handlers: { onEdit(newContent) }
+		// handlers: { onEdit(newContent), onLeave() }. onLeave runs whenever the
+		// open file is about to be replaced or closed, so pending edits get saved.
 		bind(h) { handlers = h; },
 
 		currentFilename: () => currentFilename,
@@ -43,6 +44,7 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 
 		// Closes the open file and hides every layer.
 		reset() {
+			handlers.onLeave();
 			isViewMode = false;
 			currentFilename = null;
 			document.title = 'gh-memo';
@@ -65,6 +67,7 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 
 		// Opens `filename` with `content` in the matching plugin.
 		async activate(filename, content) {
+			handlers.onLeave();
 			currentFilename = filename;
 			DOM.filenameLabel.textContent = filename;
 			document.title = filename;

@@ -19,6 +19,8 @@ Requires `m4` and `make`.
 1. Run `make` to build the project. `index.html` is generated in `dist/`.
 2. Run `make serve` to start a local development server.
 
+Each build is stamped with its UTC time and, when built from a git checkout, the commit's short hash. The stamp is shown at the bottom of Settings and in the workspace name's tooltip, so you can tell which build you are running. Every build also gets its own offline cache: an installed app notices a new build and offers "New version available — Reload" in the status bar.
+
 `dist/index.html` is self-contained and also runs when opened directly from disk (`file://`), except for offline caching and Dropbox linking, which need it to be served over http(s).
 
 Optional, with Node.js installed (no packages needed):
@@ -34,7 +36,7 @@ The source is split into small modules under `src/`. Each file registers one mod
 define('ui/pins', ['ui/refs', 'lib/dom', 'model/forest'], (DOM, Dom, Forest) => { /* ... */ return api; });
 ```
 
-`make` copies every module verbatim into `index.html` as its own inline `<script>`, and `app/boot` starts the app. Only `resources.m4` (the CDN URLs and SRI hashes, shared with the service worker) goes through m4 macro expansion.
+`make` copies every module verbatim into `index.html` as its own inline `<script>`, and `app/boot` starts the app. Only `resources.m4` (the CDN URLs and SRI hashes, shared with the service worker) and `buildInfo.js.m4` (the build stamp) go through m4 macro expansion.
 
 Each layer depends only on the layers above it:
 

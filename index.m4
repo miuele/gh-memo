@@ -28,15 +28,6 @@ m4_define([[LOAD_CSS]],
 
 		<link rel="icon" type="image/x-icon" href="favicon.ico">
 
-		<script>
-			if ('serviceWorker' in navigator) {
-				window.addEventListener('load', () => {
-					navigator.serviceWorker.register('sw.js')
-						.catch(err => console.error('Service Worker failed', err));
-				});
-			}
-		</script>
-
 		<title>gh-memo</title>
 
 		<style>

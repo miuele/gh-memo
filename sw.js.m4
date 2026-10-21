@@ -26,13 +26,38 @@ const allowedHosts = new Set(
   urlsToCache.map(requestUrl => new URL(requestUrl, location.origin).hostname)
 );
 
-const CACHE_NAME = 'notes-cache-v1';
+// One cache per build (BUILD_ID comes from make), so a new build installs a
+// new worker with fresh copies of the app files. The new worker waits until
+// the page tells it to take over (app/boot shows "New version available").
+const CACHE_PREFIX = 'notes-cache-';
+const CACHE_NAME = CACHE_PREFIX + 'BUILD_ID';
+
+const isLocal = (requestUrl) => new URL(requestUrl, location.href).origin === location.origin;
 
 self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all(urlsToCache.map(async requestUrl => {
+    if (isLocal(requestUrl)) {
+      // Bypass the HTTP cache, which may still hold the previous build.
+      return cache.add(new Request(requestUrl, { cache: 'reload' }));
+    }
+    // CDN URLs are versioned and never change: reuse a copy from an older cache.
+    const cached = await caches.match(requestUrl);
+    return cached ? cache.put(requestUrl, cached) : cache.add(requestUrl);
+  }))));
+});
+
+self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+    caches.keys()
+      .then(names => Promise.all(names
+        .filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
+        .map(name => caches.delete(name))))
+      .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', event => {
@@ -44,8 +69,11 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Only this build's cache: a waiting worker's newer files must not leak
+  // into a page still run by the old one.
   event.respondWith(
-    caches.match(event.request)
+    caches.open(CACHE_NAME)
+      .then(cache => cache.match(event.request))
       .then(response => response || fetch(event.request))
   );
 });
