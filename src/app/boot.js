@@ -51,6 +51,7 @@ define('app/boot',
 			deleteWorkspace: (id) => Workspaces.remove(id),
 			isSymlinkEditMode: () => Files.isSymlinkEditMode(),
 			setSymlinkEditMode: (value) => Files.setSymlinkEditMode(value),
+			rekeyPins: (oldSig, newSig) => Pins.rekey(oldSig, newSig),
 		});
 	};
 
@@ -81,11 +82,17 @@ define('app/boot',
 			event.preventDefault();
 		});
 
-		// Save the debounced edit when the page goes away. On mobile, 'hidden'
-		// is often the last event a backgrounded page gets before it is killed.
-		window.addEventListener('pagehide', () => Files.flushPendingEdit());
+		// Save the debounced edit when the page goes away, and the open
+		// settings, whose inputs save on 'change' (a closing tab may never fire
+		// it). On mobile, 'hidden' is often the last event a backgrounded page
+		// gets before it is killed.
+		const saveOnLeave = () => {
+			Files.flushPendingEdit();
+			if (DOM.settingsPanel && DOM.settingsPanel.style.display === 'block') Settings.save();
+		};
+		window.addEventListener('pagehide', saveOnLeave);
 		document.addEventListener('visibilitychange', () => {
-			if (document.visibilityState === 'hidden') Files.flushPendingEdit();
+			if (document.visibilityState === 'hidden') saveOnLeave();
 		});
 
 		window.addEventListener('offline', () => Status.show('📴 You are offline. Changes will save locally.', true));

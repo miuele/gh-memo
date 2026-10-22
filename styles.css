@@ -196,12 +196,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	border-color: var(--accent) !important;
 	background: #f0f7ff !important;
 }
-/* Full-width save button at the bottom of the settings panel */
-.settings-save-btn {
-	margin-top: 20px; width: 100%; padding: 12px;
-	background: var(--accent); color: white; border: none;
-	font-size: 16px; font-weight: bold; border-radius: 6px;
-}
 /* Symlink edit-mode toggle label */
 .symlink-mode-label {
 	display: flex; align-items: center; gap: 10px;

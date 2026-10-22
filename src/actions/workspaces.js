@@ -65,8 +65,11 @@ define('actions/workspaces',
 				askForCommitMsg: !!parentWs.askForCommitMsg,
 			};
 
-			Config.saveWorkspaces();
 			SettingsView.render(); // Re-render to show the new row instantly
+			// After render: it forces a parent with mounts below it to shallow
+			// (backlog D7 moves that out of render). There's no Save button
+			// to persist it later any more.
+			Config.saveWorkspaces();
 		},
 
 		switchTo(id, skipHistory = false) {

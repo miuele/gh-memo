@@ -2,11 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, same } from './harness.mjs';
 
-test('merge: current conflict-marker format (known issue, review §1.6)', () => {
+test('merge: one balanced hunk per change, local side first (C2)', () => {
 	const Merge = load()('actions/merge');
 	// The parts jsdiff 8 returns for remote "a\nb\n" vs local "a\nB\n".
 	const Diff = { diffLines: () => [{ value: 'a\n' }, { removed: true, value: 'b\n' }, { added: true, value: 'B\n' }] };
-	assert.equal(Merge.diffMarkers(Diff, 'a\nb\n', 'a\nB\n'), 'a\nb\n>>>>>>> REMOTE\n<<<<<<< LOCAL\nB\n\n=======\n');
+	assert.equal(Merge.diffMarkers(Diff, 'a\nb\n', 'a\nB\n'), 'a\n<<<<<<< LOCAL\nB\n=======\nb\n>>>>>>> REMOTE\n');
+
+	// Two separate changes, a one-sided addition, and no trailing newline.
+	const parts = [
+		{ removed: true, value: 'r1\n' }, { added: true, value: 'l1\n' },
+		{ value: 'same\n' },
+		{ added: true, value: 'only local\n' },
+		{ value: 'tail\n' },
+		{ removed: true, value: 'end' }, { added: true, value: 'END' },
+	];
+	assert.equal(Merge.diffMarkers({ diffLines: () => parts }, '', ''), [
+		'<<<<<<< LOCAL', 'l1', '=======', 'r1', '>>>>>>> REMOTE',
+		'same',
+		'<<<<<<< LOCAL', 'only local', '=======', '>>>>>>> REMOTE',
+		'tail',
+		'<<<<<<< LOCAL', 'END', '=======', 'end', '>>>>>>> REMOTE', '',
+	].join('\n'));
+
 	assert.equal(Merge.wholeFileMarkers('R', 'L'), '<<<<<<< LOCAL\nL\n=======\nR\n>>>>>>> REMOTE');
 });
 
@@ -138,4 +155,37 @@ test('sync: typing during a pull is not overwritten by the remote copy (A2)', as
 	assert.equal(rig.prompts.length, 1, 'the edit is treated as a local change');
 	same(rig.db.get('a.md'), { filename: 'a.md', content: 'v1 v2', last_synced_sha: 's1', remote_sha: 's1', is_dirty: true });
 	same(rig.activated, ['v1 v2']);
+});
+
+test('sync: refresh warns in the status bar when the tree was truncated (D6)', async () => {
+	const statuses = [];
+	const require = load({ fakes: {
+		'storage/notesDb': { get: async () => undefined, put: async () => {} },
+		'remote/sync': { getTree: async () => ({ tree: [{ path: 'a.md', type: 'blob', sha: '1' }], truncated: true }) },
+		'ui/status': { show: (text, isError) => statuses.push([text, !!isError]) },
+		'ui/fileList': { render() {} },
+		'ui/refs': { searchBar: { value: '' } },
+		'lib/tabChannel': { SIDEBAR_REFRESH: 'SIDEBAR_REFRESH', post() {} },
+	} });
+	await require('actions/sync').refreshTree();
+	const [text, isError] = statuses.at(-1);
+	assert.match(text, /File list incomplete/);
+	assert.equal(isError, true, 'stays visible');
+});
+
+test('pins: rekey moves a tree\'s pins to its new signature, merging without duplicates (D4)', () => {
+	const config = { treePins: { 'github|h|o|r|main': ['a.md', 'b.md'], 'github|h|o|r|dev': ['b.md', 'c.md'] }, saved: 0, savePins() { this.saved++; } };
+	let renders = 0;
+	const require = load({ fakes: { 'model/config': config, 'ui/pins': { render: () => renders++ } } });
+	const Pins = require('actions/pins');
+
+	Pins.rekey('github|h|o|r|main', 'github|h|o|r2|main');
+	same(config.treePins, { 'github|h|o|r|dev': ['b.md', 'c.md'], 'github|h|o|r2|main': ['a.md', 'b.md'] });
+	Pins.rekey('github|h|o|r2|main', 'github|h|o|r|dev');
+	same(config.treePins, { 'github|h|o|r|dev': ['b.md', 'c.md', 'a.md'] });
+	assert.equal(config.saved, 2);
+	assert.equal(renders, 2);
+
+	Pins.rekey('github|nothing', 'github|else');   // no pins: nothing to do
+	assert.equal(config.saved, 2);
 });

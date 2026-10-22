@@ -1,6 +1,6 @@
 define('actions/settings',
-	['model/config', 'ui/refs', 'ui/editor', 'ui/settings', 'ui/sidebar', 'ui/status'],
-	(Config, DOM, Editor, SettingsView, Sidebar, Status) => ({
+	['model/config', 'ui/refs', 'ui/editor', 'ui/settings', 'ui/sidebar'],
+	(Config, DOM, Editor, SettingsView, Sidebar) => ({
 
 	open() {
 		Editor.reset();
@@ -17,10 +17,10 @@ define('actions/settings',
 		if (window.innerWidth < 768) Sidebar.collapse();
 	},
 
+	// Called by the settings view on every committed change; it shows its
+	// own quiet "Saved ✓", so no status message here.
 	save() {
-		// Save both state arrays simultaneously
 		Config.saveKeychains();
 		Config.saveWorkspaces();
-		Status.show('Configuration saved.');
 	},
 }));

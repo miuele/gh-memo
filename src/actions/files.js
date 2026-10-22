@@ -237,7 +237,7 @@ define('actions/files',
 			try {
 				await Files.flushPendingEdit();
 				const note = await DBService.get(filename);
-				if (!note) return Status.show('Nothing to save: file not found locally.', true);
+				if (!note) return Status.show('Nothing to export: file not found locally.', true);
 
 				// The flush above saved the last debounced edit, but a keystroke
 				// can still land after it. Text-based plugins (Text/Markdown) expose their live
@@ -267,9 +267,9 @@ define('actions/files',
 				// the download asynchronously and a same-tick revoke can race it.
 				setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-				Status.show(`Saved ${basename} to disk.`);
+				Status.show(`Exported ${basename}.`);
 			} catch (err) {
-				Status.show(`Save failed: ${err.message}`, true);
+				Status.show(`Export failed: ${err.message}`, true);
 			}
 		},
 	};

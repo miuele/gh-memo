@@ -69,6 +69,8 @@ const listText = (page) => page.$$eval('#file-list li', lis => lis.map(li => li.
 const header = (page) => page.textContent('#current-filename');
 const status = (page) => page.textContent('#status-bar');
 const ls = (page, key) => page.evaluate(k => JSON.parse(localStorage.getItem(k) || 'null'), key);
+// Settings save on 'change'; blurring the focused input commits it.
+const commitInput = (page) => page.evaluate(() => document.activeElement && document.activeElement.blur());
 const clickFile = (page, name) => page.click(`#file-list li:has-text("${name}")`);
 async function createFile(page, name, text) {
 	page.dialogs.push(name);
@@ -164,6 +166,7 @@ async function basics(browser) {
 	await page.waitForTimeout(200);
 	const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#save-btn')]);
 	check(dl.suggestedFilename() === 'a.txt', 'export downloads current file', dl.suggestedFilename());
+	check((await page.textContent('#save-btn')).trim() === '📥 Export', 'export button is labelled Export', await page.textContent('#save-btn'));
 
 	// Pins
 	page.dialogs.push('m.md');
@@ -248,12 +251,23 @@ async function settingsAndGithub(browser) {
 	check(await page.$$eval('.profile-card', e => e.length) === 1, 'keychain deleted');
 
 	await page.fill('.kc-token', 'tok');
+	await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+	await page.click('.btn-token-copy');
+	await page.waitForTimeout(100);
+	check(await page.evaluate(() => navigator.clipboard.readText()) === 'tok', 'Copy puts the PAT on the clipboard');
+	check(await status(page) === 'Token copied.', 'status confirms the copy without the token', await status(page));
+	await page.click('.btn-token-toggle');
+	check(await page.getAttribute('.kc-token', 'type') === 'text' && await page.textContent('.btn-token-toggle') === 'Hide', 'Show reveals the PAT');
+	await page.click('.btn-token-toggle');
+	check(await page.getAttribute('.kc-token', 'type') === 'password', 'Hide masks it again');
 	await page.fill('.tree-owner', 'o');
 	await page.fill('.tree-repo', 'r');
 	check((await page.textContent('.tree-title')).includes('o / r'), 'tree title follows owner/repo');
-	await page.click('button:has-text("Save All Configurations")');
+	check((await ls(page, 'notes_workspaces')).ws_default.repo === '', 'typing alone does not save yet');
+	await commitInput(page);
 	const ws = (await ls(page, 'notes_workspaces')).ws_default;
-	check(ws.owner === 'o' && ws.repo === 'r' && (await ls(page, 'notes_keychains')).kc_default.token === 'tok', 'settings saved');
+	check(ws.owner === 'o' && ws.repo === 'r' && (await ls(page, 'notes_keychains')).kc_default.token === 'tok', 'settings save on change');
+	check(await page.isVisible('.settings-saved') && await page.$('.settings-save-btn') === null, 'quiet "Saved ✓" instead of a Save button');
 
 	await page.click('button:has-text("Refresh List")');
 	await page.waitForTimeout(400);
@@ -284,8 +298,31 @@ async function settingsAndGithub(browser) {
 	// Commit message prompt
 	await page.evaluate(() => {});
 	await page.click('button:has-text("Setup")');
+	// D4: pins follow the tree when its branch is renamed.
+	const pinsBefore = await ls(page, 'notes_tree_pins');
+	await page.evaluate(() => {
+		const pins = JSON.parse(localStorage.getItem('notes_tree_pins') || '{}');
+		pins['github|https://api.github.com|o|r|main'] = ['remote.md'];
+		localStorage.setItem('notes_tree_pins', JSON.stringify(pins));
+	});
+	await page.reload();
+	await page.waitForSelector('#file-list');
+	await page.click('button:has-text("Setup")');
+	await page.fill('.tree-branch', 'dev');
+	await commitInput(page);
+	let pins = await ls(page, 'notes_tree_pins');
+	check(JSON.stringify(pins['github|https://api.github.com|o|r|dev']) === '["remote.md"]' && !pins['github|https://api.github.com|o|r|main'], 'renaming the branch moves the tree\'s pins', pins);
+	await page.fill('.tree-branch', 'main');
+	await commitInput(page);
+	pins = await ls(page, 'notes_tree_pins');
+	check(JSON.stringify(pins['github|https://api.github.com|o|r|main']) === '["remote.md"]', 'and back', pins);
+	check((await page.textContent('#pin-container')).includes('remote.md'), 'pin still shown');
+	await page.evaluate((p) => localStorage.setItem('notes_tree_pins', JSON.stringify(p)), pinsBefore || {});
+	await page.reload();
+	await page.waitForSelector('#file-list');
+	await page.click('button:has-text("Setup")');
 	await page.check('.tree-askCommit');
-	await page.click('button:has-text("Save All Configurations")');
+	check((await ls(page, 'notes_workspaces')).ws_default.askForCommitMsg === true, 'checkbox saves immediately');
 	await clickFile(page, 'remote.md');
 	await page.waitForTimeout(200);
 	await page.fill('#edit-layer textarea', '# R again');
@@ -315,7 +352,7 @@ async function settingsAndGithub(browser) {
 	await page.click('#pull-btn');
 	await page.waitForTimeout(800);
 	n = await db(page, 'remote.md');
-	check(n.is_dirty && n.content.includes('<<<<<<< LOCAL') && n.content.includes('>>>>>>> REMOTE'), 'conflict "d" inserts markers', n.content);
+	check(n.is_dirty && n.content === 'a\n<<<<<<< LOCAL\nB\n=======\nb\n>>>>>>> REMOTE\n', 'conflict "d" inserts one balanced hunk', n.content);
 	page.markerOutput = n.content;
 
 	// Delete synced file -> remote DELETE with sha
@@ -332,7 +369,6 @@ async function settingsAndGithub(browser) {
 	await page.click('button:has-text("+ Add Mount Point")');
 	check(await page.$$eval('.mount-row', e => e.length) === 2, 'mount point row added');
 	check(await page.isVisible('.mount-row >> nth=0 >> .leaf-warning') || await page.isVisible('.mount-row >> nth=1 >> .leaf-warning'), 'parent mount shows shallow warning');
-	await page.click('button:has-text("Save All Configurations")');
 	const wss = await ls(page, 'notes_workspaces');
 	const mountId = Object.keys(wss).find(id => wss[id].rootDir === 'docs');
 	check(mountId && wss[mountId].name === 'Local Workspace (docs)' && wss.ws_default.shallow === true, 'mount persisted; parent forced shallow', wss);
@@ -509,7 +545,7 @@ async function editRaces(browser) {
 	await page.fill('.kc-token', 'tok');
 	await page.fill('.tree-owner', 'o');
 	await page.fill('.tree-repo', 'r');
-	await page.click('button:has-text("Save All Configurations")');
+	await commitInput(page);
 	await page.click('button:has-text("Refresh List")');
 	await page.waitForTimeout(300);
 	await clickFile(page, 'r.md');

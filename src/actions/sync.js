@@ -41,7 +41,11 @@ define('actions/sync',
 						await DBService.put(localNote);
 					}
 				}
-				Status.show('File list updated.');
+				if (treeData.truncated) {
+					Status.show('⚠️ File list incomplete: GitHub truncated this tree. Mount large sub-directories separately, or mark them Shallow.', true);
+				} else {
+					Status.show('File list updated.');
+				}
 				Tabs.post({ type: Tabs.SIDEBAR_REFRESH });
 				FileList.render(DOM.searchBar.value, false);
 			} catch (err) {

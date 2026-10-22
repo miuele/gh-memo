@@ -29,6 +29,15 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 			return res;
 		},
 
+		// Builds an API URL under /repos/{owner}/{repo}/. Path segments are
+		// encoded one at a time, so '#', '%' and '?' in a file name stay part of
+		// the path; '/' and ':' (which separates branch and path in a tree
+		// revision such as "main:docs") are kept.
+		_repoUrl({ host, owner, repo }, path) {
+			const encodePath = (p) => p.split('/').map(seg => encodeURIComponent(seg).replace(/%3A/gi, ':')).join('/');
+			return `${host}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePath(path)}`;
+		},
+
 		// The VFS Chroot Translator: Converts local filenames to absolute remote paths
 		_getFullPath(rootDir, filename) {
 			const cleanRoot = Path.cleanPath(rootDir);
@@ -43,10 +52,9 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 		===================================================================== */
 
 		async _getShallowTree(workspace, keychain) {
-			const { host, owner, repo, branch, rootDir } = workspace;
-			const safePath = Path.cleanPath(rootDir);
+			const safePath = Path.cleanPath(workspace.rootDir);
 
-			const url = `${host}/repos/${owner}/${repo}/contents/${safePath}?ref=${branch}`;
+			const url = `${this._repoUrl(workspace, `contents/${safePath}`)}?ref=${encodeURIComponent(workspace.branch)}`;
 			const res = await this._apiFetch(url, keychain.token);
 			const contents = await res.json();
 
@@ -61,17 +69,14 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 		},
 
 		async _getDeepTree(workspace, keychain) {
-			const { host, owner, repo, branch, rootDir } = workspace;
-			const safePath = Path.cleanPath(rootDir);
-			const treeRev = `${branch}:${safePath}`;
+			const safePath = Path.cleanPath(workspace.rootDir);
+			const treeRev = `${workspace.branch}:${safePath}`;
 
-			const url = `${host}/repos/${owner}/${repo}/git/trees/${treeRev}?recursive=1`;
+			const url = `${this._repoUrl(workspace, `git/trees/${treeRev}`)}?recursive=1`;
 			const res = await this._apiFetch(url, keychain.token);
 			const treeData = await res.json();
 
-			if (treeData.truncated) console.warn("GitHub API Warning: Tree truncated.");
-
-			return treeData.tree
+			const tree = treeData.tree
 				.filter(item => item.type === 'blob') 
 				.map(item => ({
 					path: item.path, 
@@ -79,17 +84,16 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 					type: 'blob',
 					size: item.size || 0
 				}));
+			// GitHub cuts recursive listings off at 100,000 entries / 7 MB.
+			return { tree, truncated: !!treeData.truncated };
 		},
 
 		async getTree(workspace, keychain) {
 			if (!keychain || !keychain.token) throw new Error("Missing credentials in keychain.");
 			if (!workspace.owner || !workspace.repo) throw new Error("Repository owner and name are not configured.");
 
-			const tree = workspace.shallow 
-				? await this._getShallowTree(workspace, keychain)
-				: await this._getDeepTree(workspace, keychain);
-
-			return { tree };
+			if (workspace.shallow) return { tree: await this._getShallowTree(workspace, keychain), truncated: false };
+			return this._getDeepTree(workspace, keychain);
 		},
 
 		/* =====================================================================
@@ -98,8 +102,7 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 
 		async getFile(filename, workspace, keychain) {
 			const fullPath = this._getFullPath(workspace.rootDir, filename);
-			const { host, owner, repo, branch } = workspace;
-			const url = `${host}/repos/${owner}/${repo}/contents/${fullPath}?ref=${branch}`;
+			const url = `${this._repoUrl(workspace, `contents/${fullPath}`)}?ref=${encodeURIComponent(workspace.branch)}`;
 
 			const isText = FileTypes.isTextFile(filename);
 
@@ -122,8 +125,8 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 
 		async putFile(filename, contentBase64, sha, commitMsg, workspace, keychain) {
 			const fullPath = this._getFullPath(workspace.rootDir, filename);
-			const { host, owner, repo, branch } = workspace;
-			const url = `${host}/repos/${owner}/${repo}/contents/${fullPath}`;
+			const { branch } = workspace;
+			const url = this._repoUrl(workspace, `contents/${fullPath}`);
 
 			const payload = { 
 				message: commitMsg || `Update ${filename}`, 
@@ -143,8 +146,8 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 
 		async deleteFile(filename, sha, workspace, keychain) {
 			const fullPath = this._getFullPath(workspace.rootDir, filename);
-			const { host, owner, repo, branch } = workspace;
-			const url = `${host}/repos/${owner}/${repo}/contents/${fullPath}`;
+			const { branch } = workspace;
+			const url = this._repoUrl(workspace, `contents/${fullPath}`);
 
 			const payload = { 
 				message: `Delete note: ${filename}`, 

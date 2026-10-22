@@ -24,7 +24,7 @@ const kc = { token: 'tok' };
 test('github: deep tree is rooted at the mount and keeps blobs only', async () => {
 	const net = fakeNet([{ status: 200, body: { tree: [{ path: 'a.md', type: 'blob', sha: '1', size: 3 }, { path: 'sub', type: 'tree', sha: '2' }] } }]);
 	const GitHub = load({ fakes: { 'lib/net': net } })('remote/github');
-	same(await GitHub.getTree(ws, kc), { tree: [{ path: 'a.md', sha: '1', type: 'blob', size: 3 }] });
+	same(await GitHub.getTree(ws, kc), { tree: [{ path: 'a.md', sha: '1', type: 'blob', size: 3 }], truncated: false });
 	assert.equal(net.calls[0].url, 'https://api.github.com/repos/o/r/git/trees/main:docs?recursive=1');
 	assert.equal(net.calls[0].headers.Authorization, 'token tok');
 });
@@ -64,4 +64,29 @@ test('dropbox: a 401 refreshes the token, persists it and retries', async () => 
 	assert.equal(keychain.token, 'fresh');
 	assert.equal(saved, 1);
 	assert.equal(net.calls[2].headers.Authorization, 'Bearer fresh');
+});
+
+test('github: paths and ref are URL-encoded per segment (C5)', async () => {
+	const net = fakeNet([]);
+	const GitHub = load({ fakes: { 'lib/net': net } })('remote/github');
+	const odd = { ...ws, branch: 'feat/a#b', rootDir: 'my docs' };
+	await GitHub.getFile('50% off?#1.md', odd, kc);
+	await GitHub.putFile('a&b/c d.md', 'QQ==', null, null, odd, kc);
+	await GitHub.deleteFile('x#y.md', 's', odd, kc);
+	await GitHub.getTree(odd, kc).catch(() => {});   // the fake replies {}, so only the URL matters
+	await GitHub.getTree({ ...odd, shallow: true }, kc).catch(() => {});
+	same(net.calls.map(c => c.url), [
+		'https://api.github.com/repos/o/r/contents/my%20docs/50%25%20off%3F%231.md?ref=feat%2Fa%23b',
+		'https://api.github.com/repos/o/r/contents/my%20docs/a%26b/c%20d.md',
+		'https://api.github.com/repos/o/r/contents/my%20docs/x%23y.md',
+		'https://api.github.com/repos/o/r/git/trees/feat/a%23b:my%20docs?recursive=1',
+		'https://api.github.com/repos/o/r/contents/my%20docs?ref=feat%2Fa%23b',
+	]);
+	same(JSON.parse(net.calls[1].body).branch, 'feat/a#b');
+});
+
+test('github: a truncated deep tree is reported (D6)', async () => {
+	const net = fakeNet([{ status: 200, body: { tree: [], truncated: true } }]);
+	const GitHub = load({ fakes: { 'lib/net': net } })('remote/github');
+	assert.equal((await GitHub.getTree(ws, kc)).truncated, true);
 });

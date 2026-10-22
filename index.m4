@@ -58,7 +58,7 @@ m4_define([[LOAD_CSS]],
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
-					<button id="save-btn" data-action="files.export" style="display:none;">💾<span class="btn-label"> Save File</span></button>
+					<button id="save-btn" data-action="files.export" title="Download a copy of this file" style="display:none;">📥<span class="btn-label"> Export</span></button>
 					<button id="pull-btn" data-action="sync.pull" style="display:none;">⬇️<span class="btn-label"> Pull File</span></button>
 					<button id="push-btn" data-action="sync.push" style="display:none;">⬆️<span class="btn-label"> Push File</span></button>
 					<button id="delete-btn" data-action="files.delete" style="display:none; color: var(--danger);">🗑️<span class="btn-label"> Delete</span></button>
@@ -90,7 +90,11 @@ m4_define([[LOAD_CSS]],
             <!-- GitHub Auth -->
             <div class="form-group gh-only">
                 <label>Personal Access Token</label>
-                <input type="password" class="kc-token" placeholder="ghp_...">
+                <div style="display: flex; gap: 6px; width: 100%;">
+                    <input type="password" class="kc-token" placeholder="ghp_..." autocomplete="off" style="flex-grow: 1; min-width: 0;">
+                    <button type="button" class="btn-token-toggle" style="white-space: nowrap;">Show</button>
+                    <button type="button" class="btn-token-copy" style="white-space: nowrap;">Copy</button>
+                </div>
             </div>
             <!-- Dropbox Auth -->
             <div class="form-group dbx-only" style="display:none; grid-column: 1 / -1;">

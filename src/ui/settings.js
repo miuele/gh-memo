@@ -1,9 +1,39 @@
 // The settings screen: keychains (credentials) and the workspace forest
 // (one group per origin tree, one row per mount point). Inputs edit the
-// in-memory config directly; handlers.save() persists it.
-define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/forest', 'buildInfo'], (DOM, Dom, Path, Config, Forest, BuildInfo) => {
+// in-memory config directly as you type; every committed change (the
+// 'change' event: blur, Enter, a checkbox or select) persists it through
+// handlers.save() and briefly shows "Saved ✓".
+define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/config', 'model/forest', 'buildInfo'], (DOM, Status, Dom, Path, Config, Forest, BuildInfo) => {
 	const { h } = Dom;
 	let handlers = {};
+	let savedTimer = null;
+
+	const flashSaved = () => {
+		const el = DOM.settingsPanel.querySelector('.settings-saved');
+		if (!el) return;
+		el.style.visibility = 'visible';
+		clearTimeout(savedTimer);
+		savedTimer = setTimeout(() => el.style.visibility = 'hidden', 1500);
+	};
+
+	// The async Clipboard API needs a secure context (https or localhost), so
+	// file:// falls back to selecting the field and execCommand('copy').
+	const copyText = async (text) => {
+		if (!navigator.clipboard || !window.isSecureContext) return false;
+		await navigator.clipboard.writeText(text);
+		return true;
+	};
+	const copyBySelection = (input) => {
+		const type = input.type;
+		input.type = 'text';
+		input.select();
+		let copied = false;
+		try { copied = document.execCommand('copy'); } catch (err) { copied = false; }
+		input.type = type;
+		input.setSelectionRange(0, 0);
+		input.blur();
+		return copied;
+	};
 
 	const createKeychainCard = (id, kc, template) => {
 		const clone = template.content.cloneNode(true);
@@ -22,6 +52,19 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 		providerEl.addEventListener('change', e => kc.provider = e.target.value);
 		tokenEl.addEventListener('input', e => kc.token = e.target.value);
 		appKeyEl.addEventListener('input', e => kc.appKey = e.target.value);
+
+		// Show/hide and copy for the PAT. The status bar never shows the value.
+		const btnToggleToken = card.querySelector('.btn-token-toggle');
+		btnToggleToken.addEventListener('click', () => {
+			const hidden = tokenEl.type === 'password';
+			tokenEl.type = hidden ? 'text' : 'password';
+			btnToggleToken.textContent = hidden ? 'Hide' : 'Show';
+		});
+		card.querySelector('.btn-token-copy').addEventListener('click', async () => {
+			if (!tokenEl.value) return Status.show('No token to copy.', true);
+			const copied = await copyText(tokenEl.value).catch(() => false) || copyBySelection(tokenEl);
+			Status.show(copied ? 'Token copied.' : 'Copy failed: select the token and copy it by hand.', !copied);
+		});
 
 		const toggleVisibility = () => {
 			const isDbx = providerEl.value === 'dropbox';
@@ -127,6 +170,15 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 		hostEl.addEventListener('input', e => wsIds.forEach(id => Config.workspaces[id].host = e.target.value));
 		commitToggle.addEventListener('change', e => wsIds.forEach(id => Config.workspaces[id].askForCommitMsg = e.target.checked));
 
+		// Origin edits change the tree signature, which keys the tree's pins.
+		let treeSig = sig;
+		groupEl.addEventListener('change', () => {
+			const newSig = Forest.computeTreeSig(refWs, Config.keychains[refWs.keychainId]);
+			if (newSig === treeSig) return;
+			handlers.rekeyPins(treeSig, newSig);
+			treeSig = newSig;
+		});
+
 		// Mount Point Spawner
 		groupEl.querySelector('.btn-add-mount').addEventListener('click', () => handlers.createMountPoint(refWs));
 
@@ -194,11 +246,16 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 	return {
 		// handlers: { save, createKeychain, deleteKeychain(id), linkDropbox(id),
 		//   createWorkspace, createMountPoint(parentWs), switchWorkspace(id),
-		//   clearDB(id), deleteWorkspace(id), isSymlinkEditMode(), setSymlinkEditMode(bool) }
+		//   clearDB(id), deleteWorkspace(id), isSymlinkEditMode(), setSymlinkEditMode(bool),
+		//   rekeyPins(oldSig, newSig) }
 		bind(hs) { handlers = hs; },
 
 		render() {
 			DOM.settingsPanel.replaceChildren();
+			DOM.settingsPanel.onchange = () => {
+				handlers.save();
+				flashSaved();
+			};
 
 			// ==========================================
 			// 0: GLOBAL OVERRIDES
@@ -212,7 +269,8 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 						    onchange: e => handlers.setSymlinkEditMode(e.target.checked)
 						}),
 						'Edit Symlink'
-					)
+					),
+					h('span', { class: 'settings-saved', style: 'visibility: hidden; color: var(--success, green); font-size: 13px;' }, 'Saved ✓')
 				)
 			);
 
@@ -247,16 +305,6 @@ define('ui/settings', ['ui/refs', 'lib/dom', 'lib/path', 'model/config', 'model/
 			for (const [sig, wsIds] of Object.entries(Forest.workspaceTrees())) {
 				DOM.settingsPanel.appendChild(createTreeGroup(sig, wsIds, treeTemplate, rowTemplate));
 			}
-
-			// ==========================================
-			// 3: GLOBAL SAVE
-			// ==========================================
-			DOM.settingsPanel.appendChild(
-				h('button', {
-					class: 'settings-save-btn',
-					onclick: () => handlers.save()
-				}, '💾 Save All Configurations')
-			);
 
 			// If this doesn't match your last build, you're looking at a stale copy.
 			DOM.settingsPanel.appendChild(

@@ -36,6 +36,19 @@ define('actions/pins',
 		}
 	},
 
+	// Editing a tree's origin (keychain, host, owner, repo, branch) changes
+	// its signature; carry its pins over instead of orphaning them. If the
+	// new signature already has pins (two trees merging), the lists merge.
+	rekey(oldSig, newSig) {
+		const moved = Config.treePins[oldSig];
+		if (oldSig === newSig || !moved) return;
+		const existing = Config.treePins[newSig] || [];
+		Config.treePins[newSig] = [...existing, ...moved.filter(p => !existing.includes(p))];
+		delete Config.treePins[oldSig];
+		Config.savePins();
+		PinsView.render();
+	},
+
 	async open(absolutePath) {
 		const matchedId = Forest.resolveBestFit(absolutePath);
 
