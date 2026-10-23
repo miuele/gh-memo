@@ -79,6 +79,7 @@ test('files: a debounced edit is saved into the file and workspace it was typed 
 	const dbs = { ws1: new Map([['a.md', { filename: 'a.md', content: 'old' }]]), ws2: new Map() };
 	let active = 'ws1';
 	let open = 'a.md';
+	const posted = [];
 	const require = load({ fakes: {
 		'storage/notesDb': {
 			get dbName() { return active; },
@@ -88,7 +89,7 @@ test('files: a debounced edit is saved into the file and workspace it was typed 
 		'ui/editor': { currentFilename: () => open },
 		'ui/fileList': { render() {} },
 		'ui/refs': { searchBar: { value: '' } },
-		'lib/tabChannel': { LOCAL_EDIT: 'LOCAL_EDIT', post() {} },
+		'lib/tabChannel': { LOCAL_EDIT: 'LOCAL_EDIT', post: (m) => posted.push(m) },
 	} });
 	const Files = require('actions/files');
 
@@ -99,7 +100,43 @@ test('files: a debounced edit is saved into the file and workspace it was typed 
 
 	same(dbs.ws1.get('a.md'), { filename: 'a.md', content: 'typed in a', is_dirty: true });
 	assert.equal(dbs.ws2.size, 0);
+	same(posted, [{ type: 'LOCAL_EDIT', dbName: 'ws1', filename: 'a.md' }], 'other tabs are told which workspace (E1)');
 	await Files.flushPendingEdit();  // nothing pending: a no-op
+});
+
+test('cross-tab: an edit freezes the same file only in the same workspace (E1)', () => {
+	let handler;
+	let frozen = 0;
+	const require = load({ fakes: {
+		'model/config': { activeWorkspace: { dbName: 'ws1' } },
+		'lib/tabChannel': { LOCAL_EDIT: 'LOCAL_EDIT', SIDEBAR_REFRESH: 'SIDEBAR_REFRESH', onMessage: (h) => { handler = h; }, post() {} },
+		'ui/editor': { currentFilename: () => 'a.md', freeze: () => { frozen++; return true; } },
+		'ui/fileList': { render() {} },
+		'ui/status': { show() {} },
+	} });
+	require('app/crossTab').install();
+	handler({ type: 'LOCAL_EDIT', dbName: 'ws2', filename: 'a.md' });
+	handler({ type: 'LOCAL_EDIT', dbName: 'ws1', filename: 'b.md' });
+	assert.equal(frozen, 0);
+	handler({ type: 'LOCAL_EDIT', dbName: 'ws1', filename: 'a.md' });
+	assert.equal(frozen, 1);
+});
+
+test('notesDb: onWrite reports each write with its database, until unsubscribed', async () => {
+	const DB = load({ fakes: { 'model/config': { activeWorkspace: { dbName: 'active' } } } })('storage/notesDb');
+	DB._run = async () => {};
+	const seen = [];
+	const off = DB.onWrite((w) => seen.push(w));
+	await DB.put({ filename: 'a.md' });
+	await DB.put({ filename: 'b.md' }, 'other');
+	await DB.delete('c.md');
+	await DB.clear();
+	off();
+	await DB.put({ filename: 'd.md' });
+	same(seen, [
+		{ dbName: 'active', filename: 'a.md' }, { dbName: 'other', filename: 'b.md' },
+		{ dbName: 'active', filename: 'c.md' }, { dbName: 'active', filename: null },
+	]);
 });
 
 // A store and editor shared by the actions under test, with a remote whose

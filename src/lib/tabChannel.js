@@ -9,6 +9,7 @@ define('lib/tabChannel', [], () => {
 		// Message types
 		SIDEBAR_REFRESH: 'SIDEBAR_REFRESH',
 		LOCAL_EDIT: 'LOCAL_EDIT',
+		NOTE_WRITTEN: 'NOTE_WRITTEN',
 
 		post(message) { get().postMessage(message); },
 		onMessage(handler) { get().onmessage = (event) => handler(event.data); },

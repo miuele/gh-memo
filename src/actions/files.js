@@ -24,7 +24,7 @@ define('actions/files',
 			note.is_dirty = true;
 			await DBService.put(note, dbName);
 
-			Tabs.post({ type: Tabs.LOCAL_EDIT, filename });
+			Tabs.post({ type: Tabs.LOCAL_EDIT, dbName, filename });
 			if (dbName === DBService.dbName) FileList.render(DOM.searchBar.value, false);
 		} catch (err) {
 			Status.show(`Couldn't save ${filename}: ${err.message}`, true);

@@ -52,8 +52,8 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			return sig && Config.treePins[sig] ? Config.treePins[sig] : [];
 		},
 
-		_activeTreeIds() {
-			const sig = this.activeTreeSignature();
+		// The workspace ids of one tree, deepest mount first (default: the active tree).
+		_treeIds(sig = this.activeTreeSignature()) {
 			if (!sig) return null;
 			return this.workspaceTrees()[sig] || [];
 		},
@@ -77,9 +77,10 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			return absolutePath;
 		},
 
-		// 3. The Router: Finds the deepest workspace mounted for an absolute path
-		resolveBestFit(absolutePath) {
-			const treeWsIds = this._activeTreeIds();
+		// 3. The Router: Finds the deepest workspace mounted for an absolute path,
+		// in the active tree or the one named by `sig`
+		resolveBestFit(absolutePath, sig) {
+			const treeWsIds = this._treeIds(sig);
 			if (!treeWsIds) return null;
 
 			return treeWsIds.find(id => {
@@ -90,7 +91,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 
 		// 4. The Mapper: Finds sub-workspaces that should appear as folders locally
 		getVirtualMounts() {
-			const treeWsIds = this._activeTreeIds();
+			const treeWsIds = this._treeIds();
 			if (!treeWsIds) return [];
 
 			const currentRoot = cleanPath(Config.activeWorkspace.rootDir);
@@ -111,7 +112,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 
 		// 5. Exact Mount: Finds if a path is the explicit root of a sub-workspace
 		getExactMount(absolutePath) {
-			const treeWsIds = this._activeTreeIds();
+			const treeWsIds = this._treeIds();
 			if (!treeWsIds) return null;
 
 			return treeWsIds.find(id => {

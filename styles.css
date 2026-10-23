@@ -201,3 +201,61 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	display: flex; align-items: center; gap: 10px;
 	cursor: pointer; color: #c98200; font-weight: bold;
 }
+/* Control panels (plugins/panel) */
+.panel { max-width: 640px; }
+.panel-title { margin: 0 0 16px; font-size: 20px; }
+.panel-heading { margin: 22px 0 8px; font-size: 15px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.panel-note { color: #666; font-size: 13px; margin: 6px 0; }
+.panel-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; white-space: pre-wrap; }
+.panel-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 6px 14px; align-items: start; padding: 8px 0; }
+.panel-label { font-size: 14px; padding-top: 6px; }
+.panel-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.panel-field input[type="text"], .panel-field input[type="number"], .panel-field select, .panel-field textarea {
+	padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; font-family: inherit; box-sizing: border-box; max-width: 100%;
+}
+.panel-field input[type="text"], .panel-field textarea { width: 100%; }
+.panel-field .panel-raw { font-family: monospace; }
+.panel-inline { display: inline-flex; align-items: center; gap: 8px; }
+.panel-unit { color: #666; font-size: 13px; }
+.panel-switch { width: 18px; height: 18px; margin: 6px 0; }
+.panel-msg { color: var(--danger); font-size: 12px; }
+.panel-msg:empty { display: none; }
+.panel-muted { color: #666; font-size: 13px; }
+.panel-pre { margin: 4px 0 0; padding: 8px; background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 4px; font-size: 12px; white-space: pre-wrap; overflow-x: auto; }
+.panel-list { margin: 0; padding-left: 18px; }
+.panel-report .panel-field { font-size: 14px; padding-top: 2px; }
+.panel-strip { display: flex; flex-direction: column; gap: 6px; margin: -6px 0 10px; font-size: 13px; }
+.panel-strip:empty { display: none; }
+.panel-strip-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.panel-dot { width: 10px; height: 10px; border-radius: 50%; background: #bbb; flex-shrink: 0; }
+.panel-dot-live { background: #2da44e; }
+.panel-dot-late { background: #d4a72c; }
+.panel-dot-offline { background: var(--danger); }
+.panel-badge { font-size: 12px; color: #666; }
+.panel-badge:empty { display: none; }
+.panel-badge-ok { color: #2da44e; }
+.panel-badge-pending { color: #9a6700; }
+.panel-badge-error { color: var(--danger); }
+.panel-badge-differs { color: #9a6700; font-weight: bold; }
+.panel-command { grid-template-columns: 1fr; }
+.panel-command-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.panel-arg { display: flex; flex-direction: column; gap: 4px; font-size: 13px; flex: 1 1 220px; min-width: 0; }
+.panel-arg input[type="text"], .panel-arg input[type="number"], .panel-arg select {
+	padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; width: 100%; box-sizing: border-box;
+}
+.panel-run { background: var(--accent); color: white; border-color: var(--accent); }
+.panel-run:hover { background: #005bb5; }
+.panel-history { display: flex; flex-direction: column; gap: 4px; }
+.panel-history:empty { display: none; }
+.panel-history-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13px; }
+.panel-history-row .panel-pre { flex-basis: 100%; }
+.panel-args { font-family: monospace; font-size: 12px; overflow-wrap: anywhere; }
+.panel-chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #eee; color: #444; }
+.panel-chip-done { background: #dafbe1; color: #116329; }
+.panel-chip-failed, .panel-chip-rejected { background: #ffebe9; color: #a40e26; }
+.panel-chip-running { background: #ddf4ff; color: #0550ae; }
+.panel-chip-no-result { background: #fff8c5; color: #7d4e00; }
+@media (max-width: 768px) {
+	.panel-row { grid-template-columns: 1fr; }
+	.panel-label { padding-top: 0; font-weight: bold; font-size: 13px; }
+}

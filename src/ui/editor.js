@@ -3,10 +3,16 @@
 // (export/pull/push/delete buttons).
 define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], (DOM, Sidebar, Status, Plugins) => {
 	let currentFilename = null;
+	// The view/edit choice carries over from file to file. A plugin with a
+	// preferredMode overrides it for its own file only, in modeOverride.
 	let isViewMode = false;
+	let modeOverride = null;
+	const viewMode = () => modeOverride ?? isViewMode;
 	let activePlugin = null;
+	// The open plugin's host (see actions/host), disposed with the plugin.
+	let activeHost = null;
 	let isFrozen = false;
-	let handlers = { onEdit() {}, onLeave() {} };
+	let handlers = { onEdit() {}, onLeave() {}, makeHost: () => null };
 
 	const setLayerVisible = (layer, isVisible) => {
 		layer.style.display = 'block';
@@ -27,6 +33,10 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	};
 
 	const unmountPlugin = () => {
+		if (activeHost) {
+			activeHost.dispose();
+			activeHost = null;
+		}
 		if (activePlugin && activePlugin.unmount) {
 			activePlugin.unmount();
 			activePlugin = null;
@@ -34,9 +44,11 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	};
 
 	const Editor = {
-		// handlers: { onEdit(newContent), onLeave() }. onLeave runs whenever the
-		// open file is about to be replaced or closed, so pending edits get saved.
-		bind(h) { handlers = h; },
+		// handlers: { onEdit(newContent), onLeave(), makeHost(filename) }.
+		// onLeave runs whenever the open file is about to be replaced or closed,
+		// so pending edits get saved. makeHost returns the plugin's host, with
+		// an `api` for the plugin and `dispose()`.
+		bind(h) { handlers = { ...handlers, ...h }; },
 
 		currentFilename: () => currentFilename,
 		activePlugin: () => activePlugin,
@@ -46,6 +58,7 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 		reset() {
 			handlers.onLeave();
 			isViewMode = false;
+			modeOverride = null;
 			currentFilename = null;
 			document.title = 'gh-memo';
 
@@ -91,19 +104,24 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 			// previous plugin has already been unmounted but we avoid leaving activePlugin
 			// pointing to a half-initialised instance.
 
-			if (!plugin.supportedModes.includes('edit') && !isViewMode) isViewMode = true;
-			else if (!plugin.supportedModes.includes('view') && isViewMode) isViewMode = false;
+			modeOverride = plugin.preferredMode ? plugin.preferredMode === 'view' : null;
+			if (modeOverride === null) {
+				if (!plugin.supportedModes.includes('edit') && !isViewMode) isViewMode = true;
+				else if (!plugin.supportedModes.includes('view') && isViewMode) isViewMode = false;
+			}
 
 			// 3. PREPARE CHROME
 			setEditorChrome(true);
 			DOM.viewLayer.replaceChildren();
 			DOM.editLayer.replaceChildren();
 
-			// 4. PROVIDE SAVE HOOK
+			// 4. PROVIDE SAVE HOOK AND HOST
+			const host = handlers.makeHost(filename);
+			activeHost = host;
 			const saveCallback = (newContent) => handlers.onEdit(newContent);
 
 			// 5. MOUNT
-			await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback, { isViewMode });
+			await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback, { isViewMode: viewMode(), host: host ? host.api : null });
 			activePlugin = plugin;
 
 			Editor.applyModeVisibility();
@@ -121,12 +139,12 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 
 			if (plugin.supportedModes.includes('view') && plugin.supportedModes.includes('edit')) {
 				DOM.viewToggle.style.display = 'flex';
-				DOM.viewToggle.textContent = isViewMode ? '✏️' : '👁️';
+				DOM.viewToggle.textContent = viewMode() ? '✏️' : '👁️';
 			} else {
 				DOM.viewToggle.style.display = 'none';
 			}
 
-			if (isViewMode) {
+			if (viewMode()) {
 				setLayerVisible(DOM.editLayer, false);
 				setLayerVisible(DOM.viewLayer, true);
 			} else {
@@ -139,10 +157,11 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 			const plugin = activePlugin;
 			if (!plugin || !plugin.supportedModes.includes('view') || !plugin.supportedModes.includes('edit')) return;
 
-			isViewMode = !isViewMode;
+			if (modeOverride === null) isViewMode = !isViewMode;
+			else modeOverride = !modeOverride;
 			Editor.applyModeVisibility();
 
-			if (plugin.onModeSwitch) await plugin.onModeSwitch(isViewMode);
+			if (plugin.onModeSwitch) await plugin.onModeSwitch(viewMode());
 		},
 
 		// Locks the editor because the open file was edited in another tab.

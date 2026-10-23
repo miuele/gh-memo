@@ -47,6 +47,23 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			return ws.dbName;
 		},
 
+		// Listeners for onWrite(), called after every put, delete and clear.
+		_writeListeners: new Set(),
+
+		// Calls cb({ dbName, filename }) after each successful write in this tab
+		// (filename is null after clear). Returns an unsubscribe function.
+		// Other tabs learn of writes through app/crossTab.
+		onWrite(cb) {
+			this._writeListeners.add(cb);
+			return () => this._writeListeners.delete(cb);
+		},
+
+		_written(dbName, filename) {
+			for (const cb of [...this._writeListeners]) {
+				try { cb({ dbName, filename }); } catch (err) { console.error(err); }
+			}
+		},
+
 		// Every operation below takes an optional `dbName`, for callers that must
 		// keep writing to the workspace they started in after the user switches
 		// away (a delayed autosave, a push or pull still waiting on the network).
@@ -103,14 +120,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}
 		},
 
-		async put(note, dbName) {
-			return this._run(db => new Promise((resolve, reject) => {
+		async put(note, dbName = this.dbName) {
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).put(note);
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
 			}), 'Saving note', dbName);
+			this._written(dbName, note.filename);
 		},
 		async get(filename, dbName) {
 			return this._run(db => new Promise((resolve, reject) => {
@@ -129,13 +147,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}), 'Reading notes');
 		},
 		async delete(filename) {
-			return this._run(db => new Promise((resolve, reject) => {
+			const dbName = this.dbName;
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).delete(filename);
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-			}), 'Deleting note');
+			}), 'Deleting note', dbName);
+			this._written(dbName, filename);
 		},
 		async getAllKeys() {
 			return this._run(db => new Promise((resolve, reject) => {
@@ -146,13 +166,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}), 'Reading note list');
 		},
 		async clear() {
-			return this._run(db => new Promise((resolve, reject) => {
+			const dbName = this.dbName;
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).clear();
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-			}), 'Clearing local cache');
+			}), 'Clearing local cache', dbName);
+			this._written(dbName, null);
 		}
 	};
 

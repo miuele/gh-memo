@@ -1,6 +1,9 @@
+// Markdown notes: a textarea to edit, and a rendered view with KaTeX math and
+// highlighted code. Local images are read through the plugin host, which
+// also tells the view when one of them is stored or changed.
 define('plugins/markdown',
-	['lib/dom', 'lib/path', 'lib/fileTypes', 'plugins/textEditor', 'storage/notesDb', 'ui/status', 'resources'],
-	(Dom, Path, FileTypes, TextEditor, DBService, Status, R) => {
+	['lib/dom', 'lib/fileTypes', 'plugins/textEditor', 'ui/status', 'resources'],
+	(Dom, FileTypes, TextEditor, Status, R) => {
 
 	let depsLoaded = false;
 	const loadDeps = async () => {
@@ -23,7 +26,7 @@ define('plugins/markdown',
 			{
 				renderer: {
 					image(token) {
-						// Prevent eager fetching by holding the URL in data-src
+						// Hold the URL in data-src, so nothing loads before renderMarkdown decides
 						return `<img data-src="${token.href}" alt="${token.text || ''}" title="${token.title || ''}" />`;
 					}
 				}
@@ -40,26 +43,51 @@ define('plugins/markdown',
 			textarea: null,
 			viewLayer: null,
 			filename: null,
+			host: null,
+			isViewMode: false,
+			unsubscribe: null,
+			// Only the latest of overlapping renders updates the view.
+			renders: 0,
 
-
-			mount: async function(filename, content, viewLayer, editLayer, saveCallback, { isViewMode } = {}) {
+			mount: async function(filename, content, viewLayer, editLayer, saveCallback, { isViewMode, host } = {}) {
 				this.filename = filename;
 				this.viewLayer = viewLayer;
+				this.host = host || null;
+				this.isViewMode = !!isViewMode;
 
 				// Ask the factory for a standard editor, but the plugin still OWNS it
 				this.textarea = TextEditor.create(content, saveCallback);
 				editLayer.appendChild(this.textarea);
 
+				// An image pulled, pasted or edited elsewhere shows without reopening the note.
+				if (this.host) this.unsubscribe = this.host.onChange(() => this.isViewMode && this.renderMarkdown());
+
 				if (isViewMode) await this.renderMarkdown();
 			},
 
 			onModeSwitch: async function(isViewMode) {
+				this.isViewMode = isViewMode;
 				if (isViewMode) await this.renderMarkdown();
 				else this.textarea.focus();
 			},
 
+			// The stored image for a local src, through the host. Null when it isn't
+			// stored, or the path is refused (e.g. above the repo root).
+			readImage: async function(src) {
+				if (!this.host) return null;
+				try {
+					const file = await this.host.read(src);
+					return file && file.content instanceof Blob ? file.content : null;
+				} catch (err) {
+					console.warn(`Image ${src}:`, err.message);
+					return null;
+				}
+			},
+
 			renderMarkdown: async function() {
+				const render = ++this.renders;
 				await loadDeps();
+				if (!this.textarea || render !== this.renders) return;
 
 				let processedText = this.textarea.value
 				        // Ensure block math has a preceding empty line (prevents it being swallowed by paragraphs)
@@ -76,6 +104,11 @@ define('plugins/markdown',
 				    if (node.tagName === 'A') {
 				        node.setAttribute('target', '_blank');
 				        node.setAttribute('rel', 'noopener noreferrer');
+				    }
+				    // An HTML <img> with a local src is looked up like a Markdown image.
+				    if (node.tagName === 'IMG' && node.hasAttribute('src') && !/^(https?:|data:)/i.test(node.getAttribute('src'))) {
+				        node.setAttribute('data-src', node.getAttribute('src'));
+				        node.removeAttribute('src');
 				    }
 				});
 
@@ -100,33 +133,33 @@ define('plugins/markdown',
 
 				safeFragment.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 
+				// Remove the hook after use so it doesn't bleed into other plugins
+				DOMPurify.removeHook('afterSanitizeAttributes');
+
 				const imgPromises = Array.from(safeFragment.querySelectorAll('img')).map(async (img) => {
 					// Read from our safe data attribute
 					const src = img.getAttribute('data-src');
 					if (!src) return;
 
 					if (!src.match(/^(http|https|data:)/i)) {
-						// Local Image Lookup
-						const file = await DBService.get(Path.resolvePath(this.filename, src));
-						if (file && file.content instanceof Blob) {
-							const objectUrl = URL.createObjectURL(file.content);
+						// Local image, from the stored copy
+						const blob = await this.readImage(src);
+						if (blob) {
+							const objectUrl = URL.createObjectURL(blob);
 							img.src = objectUrl; // Assigning the real src safely
 							img.onload = () => URL.revokeObjectURL(objectUrl);
 						} else {
 							img.alt = `[Image missing locally: ${src}]`;
 						}
 					} else {
-						// External Web Image: Safe to fetch now
+						// Remote image: the browser loads it (see backlog, Deferred)
 						img.src = src;
 					}
 				});
 
 				await Promise.all(imgPromises);
 
-				this.viewLayer.replaceChildren(safeFragment);
-
-				// Remove the hook after use so it doesn't bleed into other plugins
-				DOMPurify.removeHook('afterSanitizeAttributes');
+				if (this.viewLayer && render === this.renders) this.viewLayer.replaceChildren(safeFragment);
 			},
 
 			freeze: function() {
@@ -136,6 +169,9 @@ define('plugins/markdown',
 			},
 
 			unmount: function() {
+				if (this.unsubscribe) this.unsubscribe();
+				this.unsubscribe = null;
+				this.host = null;
 				this.textarea = null;
 				this.viewLayer = null;
 				this.filename = null;

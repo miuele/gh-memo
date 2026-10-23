@@ -208,6 +208,220 @@ async function pasteCheck(browser) {
 	await page.context().close();
 }
 
+const PANEL = {
+	title: 'Home PC',
+	controls: [
+		{ type: 'heading', label: 'Settings' },
+		{ id: 'heater', type: 'number', label: 'Heater target', unit: '°C', min: 15, max: 28, step: 0.5, default: 20 },
+		{ id: 'porch_light', type: 'toggle', label: 'Porch light' },
+		{ id: 'mode', type: 'select', label: 'Mode', options: ['home', 'away', { value: 'vac', label: 'Vacation' }] },
+		{ id: 'message', type: 'text', label: 'Note on the screen' },
+		{ id: 'odd', type: 'gizmo', label: 'Unknown type' },
+	],
+	values: { mode: 'home', porch_light: true, heater: 21 },
+};
+const panelValues = async (page, name) => JSON.parse((await db(page, name)).content).values;
+// Replaces a panel's text through edit mode, then shows the form again.
+async function setPanelText(page, text) {
+	await page.click('#view-toggle');
+	await page.fill('#edit-layer textarea', text);
+	await page.waitForTimeout(700);
+	await page.click('#view-toggle');
+}
+
+async function panelForm(browser) {
+	console.log('panel: form');
+	const page = await newApp(browser);
+	await open(page);
+	await createFile(page, 'a.txt', 'plain');
+	check(await page.isVisible('#edit-layer textarea'), 'text file opens in edit mode');
+
+	await createFile(page, 'home.panel.json');
+	check(await page.isVisible('#view-layer .panel') && await page.textContent('#view-toggle') === '✏️', 'a panel opens as a form even after a file in edit mode');
+	check((await page.textContent('#view-layer')).includes('no controls yet'), 'an empty panel says it has no controls');
+
+	await setPanelText(page, JSON.stringify(PANEL, null, '\t'));
+	check(await page.textContent('#view-layer .panel-title') === 'Home PC', 'panel title');
+	check(await page.inputValue('#panel-heater') === '21' && await page.isChecked('#panel-porch_light'), 'number and toggle show stored values');
+	check(await page.$eval('#panel-mode', s => s.selectedOptions[0].textContent) === 'home', 'select shows the stored option');
+	check(await page.inputValue('#panel-odd') === '', 'unknown type falls back to a JSON input');
+
+	await page.fill('#panel-heater', '22.5');
+	await page.press('#panel-heater', 'Tab');
+	await page.waitForTimeout(700);
+	let n = await db(page, 'home.panel.json');
+	check(JSON.parse(n.content).values.heater === 22.5 && n.is_dirty, 'changing a number saves it into values', n.content);
+	check(n.content.includes('\n\t"title"'), 'the file keeps its tab indentation');
+
+	await page.fill('#panel-heater', '40');
+	await page.press('#panel-heater', 'Tab');
+	await page.waitForTimeout(700);
+	check((await page.textContent('.panel-msg')).includes('at most 28') && (await panelValues(page, 'home.panel.json')).heater === 22.5, 'out-of-range input is refused with a message');
+
+	await page.uncheck('#panel-porch_light');
+	await page.selectOption('#panel-mode', { label: 'Vacation' });
+	await page.fill('#panel-odd', '{"x": [1, 2]}');
+	await page.press('#panel-odd', 'Tab');
+	await page.waitForTimeout(700);
+	const v = await panelValues(page, 'home.panel.json');
+	check(v.porch_light === false && v.mode === 'vac' && JSON.stringify(v.odd) === '{"x":[1,2]}', 'toggle, select and raw JSON values are saved', v);
+
+	await page.click('#view-toggle');
+	check(JSON.parse(await page.inputValue('#edit-layer textarea')).values.mode === 'vac', 'edit mode shows the updated JSON');
+	await page.click('#view-toggle');
+
+	await clickFile(page, 'a.txt');
+	await page.waitForTimeout(200);
+	check(await page.isVisible('#edit-layer textarea'), 'the next text file still opens in edit mode');
+
+	await clickFile(page, 'home.panel.json');
+	await page.waitForTimeout(200);
+	await setPanelText(page, '{ broken');
+	check((await page.textContent('#view-layer .panel-error').catch(() => '')).startsWith('Invalid JSON'), 'invalid JSON shows an error instead of the form');
+
+	check(page.errors.length === 0, 'no page errors', page.errors);
+	await page.context().close();
+}
+
+// Command buttons edit the panel file; a status file is a separate, read-only view.
+// Nothing here touches the network: syncing is the usual Pull and Push.
+async function panelCommandsAndStatus(browser) {
+	console.log('panel: commands and status view');
+	const page = await newApp(browser);
+	const requests = [];
+	page.on('request', r => { if (!r.url().startsWith(new URL(APP_URL).origin) && !/cdnjs|jsdelivr/.test(r.url())) requests.push(r.url()); });
+	await open(page);
+
+	const panel = {
+		title: 'Home PC',
+		rev: 1,
+		controls: [
+			{ id: 'heater', type: 'number', label: 'Heater target', min: 15, max: 28 },
+			{ id: 'backup', type: 'button', label: 'Run backup now', confirm: true },
+			{ id: 'download', type: 'button', label: 'Download', fields: [{ id: 'url', type: 'text', label: 'URL', required: true, pattern: 'https?://.+' }] },
+		],
+		values: { heater: 21 },
+	};
+	await createFile(page, 'home.panel.json');
+	await setPanelText(page, JSON.stringify(panel, null, 2));
+	const doc = async () => JSON.parse((await db(page, 'home.panel.json')).content);
+
+	await page.fill('#panel-heater', '22');
+	await page.press('#panel-heater', 'Tab');
+	await page.waitForTimeout(700);
+	check((await doc()).rev === 2, 'a value change bumps rev');
+
+	page.dialogs.push(false);
+	await page.click('button:has-text("Run backup now")');
+	await page.waitForTimeout(700);
+	check(!(await doc()).queue, 'cancelling the confirmation queues nothing');
+
+	await page.click('button:has-text("Download")');
+	check((await page.textContent('.panel-command:has-text("Download") .panel-msg')) === 'Required.', 'a required argument is checked before queuing');
+	await page.fill('.panel-arg input', 'ftp://x');
+	await page.press('.panel-arg input', 'Tab');
+	await page.click('button:has-text("Download")');
+	check((await page.textContent('.panel-command:has-text("Download") .panel-msg')) === 'Not in the expected format.', 'argument pattern is checked');
+	await page.fill('.panel-arg input', 'https://example.com/a.pdf');
+	await page.press('.panel-arg input', 'Tab');
+	await page.click('button:has-text("Download")');
+	await page.waitForTimeout(700);
+	let d = await doc();
+	const entry = d.queue && d.queue[0];
+	check(entry && entry.command === 'download' && entry.args.url === 'https://example.com/a.pdf' && /^c-\d{8}T\d{6}-[0-9a-z]{6}$/.test(entry.id) && entry.rev === 3 && d.rev === 3, 'a command is queued in the file with id, args and rev', d);
+	const hist = await page.textContent('.panel-command:has-text("Download") .panel-history');
+	check(hist.includes('queued') && hist.includes('example.com'), 'the button shows its queued entry', hist);
+	check((await page.textContent('#view-layer .panel-strip')).includes('No home.status.json on this device yet'), 'without a stored status file, the form says so');
+	check((await db(page, 'home.panel.json')).is_dirty && (await listText(page)).some(t => t.includes('home.panel.json')), 'the panel waits for Push like any edited file');
+
+	page.dialogs.push(true);
+	await page.click('button:has-text("Run backup now")');
+	await page.waitForTimeout(700);
+	check((await doc()).queue.map(e => e.command).join() === 'download,backup', 'a confirmed command is queued after the others');
+
+	// The status file, written by the program, opened on its own.
+	const status = {
+		updated: new Date(Date.now() - 30e3).toISOString(), heartbeat_seconds: 60, rev: 3,
+		values: { heater: 22 }, errors: { mode: 'unknown mode' },
+		results: { [entry.id]: { state: 'failed', at: new Date().toISOString(), output: 'timed out after 2 s' } },
+		report: { 'Disk free': 'line 1\nline 2', Disk: { type: 'meter', value: 82, unit: '%' } },
+	};
+	await createFile(page, 'home.status.json');
+	await page.click('#view-toggle');
+	await page.fill('#edit-layer textarea', JSON.stringify(status));
+	await page.waitForTimeout(700);
+	await page.click('#view-toggle');
+	const view = await page.textContent('#view-layer');
+	check(/Online · updated 3\d s ago · panel rev 3/.test(view), 'status view: liveness from the file\'s own time', view.slice(0, 120));
+	check(view.includes('heater') && view.includes('⚠️ unknown mode') && view.includes('failed') && view.includes('timed out after 2 s'), 'status view: values, errors and command results', view);
+	check(await page.$('#view-layer .panel-report meter') !== null && await page.$('#view-layer .panel-pre') !== null, 'status view: report widgets');
+	check(await page.$('#view-layer input, #view-layer select, #view-layer button') === null, 'status view is read-only');
+
+	// The panel reads its status file, derived from its name, through the plugin host.
+	await clickFile(page, 'home.panel.json');
+	await page.waitForTimeout(300);
+	const strip = await page.textContent('#view-layer .panel-strip');
+	check(/Online · updated 3\d s ago · panel rev 3/.test(strip) && strip.includes('home.status.json'), 'the form shows the status file\'s liveness', strip);
+	check(await page.textContent('.panel-row:has(#panel-heater) .panel-badge') === '✓ Applied', 'a reported value that matches shows as applied');
+	const runs = await page.textContent('.panel-command:has-text("Download") .panel-history');
+	check(runs.includes('failed') && runs.includes('timed out after 2 s'), 'a command shows its result from the status file', runs);
+	check((await page.textContent('.panel-command:has-text("Run backup now") .panel-history')).includes('waiting'), 'a command the program has not seen is waiting');
+	check((await page.textContent('#view-layer')).includes('Disk free'), 'the status report is shown under the form');
+
+	// A newer status stored while the form is open (as a pull would) updates it in place.
+	await page.fill('#panel-heater', '2');
+	const backupId = (await doc()).queue.find(e => e.command === 'backup').id;
+	await page.evaluate(([text]) => define.require('storage/notesDb').put({ filename: 'home.status.json', content: text, last_synced_sha: 's', remote_sha: 's', is_dirty: false }),
+		[JSON.stringify({ ...status, rev: 4, values: { heater: 25 }, results: { ...status.results, [backupId]: { state: 'done', at: new Date().toISOString() } } })]);
+	await page.waitForTimeout(700);
+	check(await page.textContent('.panel-row:has(#panel-heater) .panel-badge') === 'Reported: 25', 'a newer stored status updates the badges', await page.textContent('.panel-row:has(#panel-heater) .panel-badge'));
+	check((await page.textContent('.panel-command:has-text("Run backup now") .panel-history')).includes('done'), 'and the command results');
+	check(await page.inputValue('#panel-heater') === '2' && await page.evaluate(() => document.activeElement.id) === 'panel-heater', 'without rebuilding the input being typed in');
+	await page.press('#panel-heater', 'Escape');
+
+	check(requests.length === 0, 'no network requests', requests);
+	check(page.errors.length === 0, 'no page errors', page.errors);
+	await page.context().close();
+}
+
+// Local images are read through the plugin host, and refreshed when one is
+// stored later, in this tab or another.
+async function markdownImages(browser) {
+	console.log('markdown: images through the host');
+	const ctx = await browser.newContext({ serviceWorkers: 'block' });
+	const page = await newApp(browser, { context: ctx });
+	await open(page);
+	await createFile(page, 'notes/m.md', '# M\n\n![pic](../img/pic.png)\n\n![spaced](<my pic.png>)\n\n![up](../../up.png)\n');
+	await page.click('#view-toggle');
+	await page.waitForSelector('#view-layer h1', { timeout: 5000 }).catch(() => {});
+	const alts = () => page.$$eval('#view-layer img', imgs => imgs.map(i => i.getAttribute('alt')));
+	const srcs = () => page.$$eval('#view-layer img', imgs => imgs.map(i => i.getAttribute('src') || ''));
+	check(JSON.stringify(await alts()) === JSON.stringify(['[Image missing locally: ../img/pic.png]', '[Image missing locally: my pic.png]', '[Image missing locally: ../../up.png]']), 'images not stored yet are marked missing', await alts());
+
+	page.dialogs.push('img/pic.png');
+	await page.evaluate(() => {
+		const dt = new DataTransfer();
+		dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'p.png', { type: 'image/png' }));
+		document.querySelector('#file-list').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+	});
+	await page.waitForTimeout(900);
+	check((await srcs())[0].startsWith('blob:') && await header(page) === 'notes/m.md', 'an image saved after the note is open appears without reopening', await srcs());
+
+	const p2 = await newApp(browser, { context: ctx });
+	await open(p2);
+	p2.dialogs.push('notes/my pic.png');
+	await p2.setInputFiles('#file-upload', { name: 'x.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
+	await page.waitForTimeout(900);
+	check((await srcs())[1].startsWith('blob:'), 'an image stored in another tab appears too, from a path with a space', await srcs());
+	check((await alts())[2] === '[Image missing locally: ../../up.png]', 'a path above the repo root stays missing');
+
+	const refused = await page.evaluate(() => define.require('ui/editor').activePlugin().host.read('../../../x.txt').then(() => 'read', e => e.message));
+	check(refused.includes('outside the repository'), 'the host refuses a path above the repo root', refused);
+
+	check(page.errors.length === 0 && p2.errors.length === 0, 'no page errors', [...page.errors, ...p2.errors]);
+	await ctx.close();
+}
+
 async function settingsAndGithub(browser) {
 	console.log('settings + github');
 	const page = await newApp(browser);
@@ -634,6 +848,9 @@ async function serviceWorkerUpdate(browser) {
 	try {
 		await basics(browser);
 		await pasteCheck(browser);
+		await panelForm(browser);
+		await panelCommandsAndStatus(browser);
+		await markdownImages(browser);
 		const markers = await settingsAndGithub(browser);
 		await dropbox(browser);
 		await crossTab(browser);

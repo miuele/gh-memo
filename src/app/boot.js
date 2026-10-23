@@ -4,11 +4,11 @@
 define('app/boot',
 	['model/config', 'remote/dropboxAuth',
 	 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/pins', 'ui/indicator', 'ui/settings', 'ui/sidebar', 'ui/status',
-	 'actions/files', 'actions/sync', 'actions/pins', 'actions/workspaces', 'actions/keychains', 'actions/settings',
+	 'actions/files', 'actions/sync', 'actions/pins', 'actions/workspaces', 'actions/keychains', 'actions/settings', 'actions/host',
 	 'app/router', 'app/shortcuts', 'app/paste', 'app/crossTab', 'app/serviceWorker'],
 	(Config, DropboxAuth,
 	 DOM, Editor, FileList, PinsView, Indicator, SettingsView, Sidebar, Status,
-	 Files, Sync, Pins, Workspaces, Keychains, Settings,
+	 Files, Sync, Pins, Workspaces, Keychains, Settings, Host,
 	 Router, Shortcuts, Paste, CrossTab, ServiceWorker) => {
 
 	// Everything a data-action="..." attribute in index.html can trigger.
@@ -30,6 +30,7 @@ define('app/boot',
 		Editor.bind({
 			onEdit: (content) => Files.handleTyping(content),
 			onLeave: () => Files.flushPendingEdit(),
+			makeHost: (filename) => Host.create(filename),
 		});
 		FileList.bind({
 			open: (filename) => Files.open(filename),

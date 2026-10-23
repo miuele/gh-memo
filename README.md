@@ -76,10 +76,12 @@ To sync your files, you need to configure a Keychain with appropriate credential
 
 - Workspace Forest: Workspaces sharing a remote origin are grouped into trees. This enables tree-level navigation and pin resolution across multiple mount points.
 
+- Control Panels: a `*.panel.json` file opens as a form whose values (and queued commands) are stored in the file itself, for another program to read; a `*.status.json` file written by that program opens as a read-only dashboard, and the panel of the same name shows what it reports beside each control. Both sync with the usual Pull and Push. See `src/plugins/panel/README.md`, and `examples/panel_agent.py` for a sample program on the other side.
+
 - Declarative Symlinks: Supports .symlink files containing JSON payloads. Clicking these files triggers the application router to instantly tear down the current environment and load a different locally configured workspace. Example: `{ "owner": "rust-lang", "repo": "nomicon", "rootDir": "src" }`
 
 ### Editing & Organization
-- Format Support: Includes a plugin architecture for rendering different file types. It supports raw text editing, rich Markdown rendering (including KaTeX math parsing and syntax highlighting), and read-only viewing for PDFs and images.
+- Format Support: Includes a plugin architecture for rendering different file types. It supports raw text editing, rich Markdown rendering (including KaTeX math parsing and syntax highlighting), and read-only viewing for PDFs and images. A plugin edits only the open file and never uses the network; other files (a note's local images, a panel's status file) it reads from the local cache of the same repository; see `src/plugins/README.md`. An image stored after its note is open appears without reopening the note.
 
 - Pinning: Files and directories can be pinned for quick access. Pins are stored at the repository (tree) level.
 

@@ -19,6 +19,20 @@ define('lib/path', [], () => {
 		return stack.join('/');
 	};
 
+	// Like resolvePath, but for paths that must stay inside one tree: a
+	// leading '/' starts at the root, and a '..' above the root gives null
+	// instead of being dropped.
+	const resolveWithin = (basePath, relativePath) => {
+		const stack = relativePath.startsWith('/') ? [] : basePath.split('/').slice(0, -1);
+		for (const part of relativePath.split('/')) {
+			if (part === '' || part === '.') continue;
+			if (part !== '..') stack.push(part);
+			else if (!stack.length) return null;
+			else stack.pop();
+		}
+		return stack.join('/');
+	};
+
 	const parsePath = (path) => {
 		const lastSlash = path.lastIndexOf('/');
 		const dir = lastSlash === -1 ? '' : path.substring(0, lastSlash + 1);
@@ -28,5 +42,5 @@ define('lib/path', [], () => {
 		return { dir, filename, basename };
 	};
 
-	return { cleanPath, resolvePath, parsePath };
+	return { cleanPath, resolvePath, resolveWithin, parsePath };
 });
