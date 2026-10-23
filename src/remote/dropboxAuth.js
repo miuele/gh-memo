@@ -9,12 +9,16 @@ define('remote/dropboxAuth', ['model/config', 'lib/net', 'lib/pkce'], (Config, N
 
 		const verifier = Pkce.generateCodeVerifier();
 		const challenge = await Pkce.generateCodeChallenge(verifier);
+		// Ties the redirect back to this request, so a link carrying someone
+		// else's code can't attach their account to this keychain.
+		const state = Pkce.generateCodeVerifier();
 
 		sessionStorage.setItem('dbx_pkce_verifier', verifier);
 		sessionStorage.setItem('dbx_pkce_keychain_id', kcId);
+		sessionStorage.setItem('dbx_pkce_state', state);
 
 		const redirectUri = window.location.origin + window.location.pathname;
-		const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&token_access_type=offline&redirect_uri=${encodeURIComponent(redirectUri)}`;
+		const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&token_access_type=offline&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;
 		window.location.href = authUrl;
 	},
 
@@ -24,12 +28,19 @@ define('remote/dropboxAuth', ['model/config', 'lib/net', 'lib/pkce'], (Config, N
 		const code = params.get('code');
 		const verifier = sessionStorage.getItem('dbx_pkce_verifier');
 		const kcId = sessionStorage.getItem('dbx_pkce_keychain_id');
+		const state = sessionStorage.getItem('dbx_pkce_state');
 
 		if (!code || !verifier || !kcId) return false;
 
 		window.history.replaceState({}, document.title, window.location.pathname);
 		sessionStorage.removeItem('dbx_pkce_verifier');
 		sessionStorage.removeItem('dbx_pkce_keychain_id');
+		sessionStorage.removeItem('dbx_pkce_state');
+
+		if (!state || params.get('state') !== state) {
+			alert('Dropbox linking failed: the reply does not match the request made from this tab. Link again.');
+			return false;
+		}
 
 		const keychain = Config.keychains[kcId];
 		if (!keychain) return false;

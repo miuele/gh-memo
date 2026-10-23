@@ -2,6 +2,10 @@
 
 A plugin renders one family of files. `plugins/registry` lists them in priority order;
 the first whose `canHandle(filename)` returns true wins, and `unsupported` is the catch-all.
+`make` generates the registry (`build/plugins/registry.js`) from `PLUGINS`
+(`make PLUGINS="markdown text"`; see the top-level README). A plugin is a file here that
+defines `canHandle:`; its helpers go in a folder of the same name and are left out with it.
+Other files here, such as `textEditor`, are shared and always built in.
 
 A plugin module returns `{ canHandle(filename), create() }`. `create()` returns an instance:
 

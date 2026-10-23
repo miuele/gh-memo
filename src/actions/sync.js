@@ -13,38 +13,89 @@ define('actions/sync',
 		return x.every((byte, i) => byte === y[i]);
 	};
 
+	// Notes the remote listing covers but no longer contains (D5). A shallow
+	// listing covers only the top level. Notes never seen remotely are
+	// local-only already and are left alone.
+	const missingFromTree = (notes, tree, shallow) => {
+		const listed = new Set(tree.map(item => item.path));
+		return notes.filter(note => note.remote_sha
+			&& !listed.has(note.filename)
+			&& !(shallow && note.filename.includes('/')));
+	};
+
+	// A missing note with nothing local (a placeholder Refresh created and
+	// nobody pulled, or a folder entry) is dropped. Anything else becomes a
+	// local-only file, which a push creates again.
+	const holdsNothingLocal = (note) => note.is_folder || (!note.last_synced_sha && !note.is_dirty);
+
+	// What a refresh writes, from the stored notes and the listing (pure, so it
+	// can run inside one IndexedDB transaction: E5).
+	//   - every listed file gets its remote sha, or a placeholder if not stored;
+	//   - in a shallow workspace, nested notes are left over from a deep listing
+	//     or a link, and under a mount they duplicate its files (D7): clean ones
+	//     are dropped, edited ones kept;
+	//   - notes the listing no longer has are handled as above (D5), unless the
+	//     listing was truncated and can't tell.
+	const planRefresh = (notes, files, { shallow, truncated }) => {
+		const byName = new Map(notes.map(note => [note.filename, note]));
+		const put = [];
+		const drop = [];
+		let nestedKept = 0;
+		let nowLocalOnly = 0;
+
+		for (const file of files) {
+			const isFolder = file.type === 'folder';
+			const note = byName.get(file.path);
+			put.push(note
+				? { ...note, remote_sha: file.sha, is_folder: isFolder }
+				: { filename: file.path, content: isFolder ? null : '', last_synced_sha: null, remote_sha: file.sha, is_dirty: false, is_folder: isFolder });
+		}
+
+		if (shallow) {
+			for (const note of notes.filter(n => n.filename.includes('/'))) {
+				if (note.is_dirty && !note.is_folder) nestedKept++;
+				else drop.push(note.filename);
+			}
+		}
+
+		if (!truncated) {
+			for (const note of missingFromTree(notes, files, shallow)) {
+				if (holdsNothingLocal(note)) {
+					drop.push(note.filename);
+				} else {
+					put.push({ ...note, remote_sha: null, last_synced_sha: null, is_dirty: true });
+					nowLocalOnly++;
+				}
+			}
+		}
+		return { put, delete: drop, nestedKept, nowLocalOnly };
+	};
+
 	return {
 		async refreshTree() {
 			try {
 				Status.show('Refreshing file list remotely...');
+				// The listing is written to the workspace it was made for, even if
+				// the user switches away during the network call.
+				const { dbName, shallow } = Config.activeWorkspace;
 				const treeData = await SyncService.getTree();
-
-				// FIX: Keep both blobs and folders so they enter IndexedDB
+				// Keep both blobs and folders so they enter IndexedDB
 				const files = treeData.tree.filter(item => item.type === 'blob' || item.type === 'folder');
 
-				for (const file of files) {
-					let localNote = await DBService.get(file.path);
-					const isFolder = file.type === 'folder';
+				// Edits typed during the network call must be stored before the plan reads them.
+				await Files.flushPendingEdit();
+				const { delete: dropped, nestedKept, nowLocalOnly } = await DBService.rewriteAll(
+					notes => planRefresh(notes, files, { shallow, truncated: treeData.truncated }), dbName);
+				if (DBService.dbName === dbName && dropped.includes(Editor.currentFilename())) Editor.reset();
 
-					if (!localNote) {
-						await DBService.put({
-							filename: file.path,
-							content: isFolder ? null : '', // Folders don't need content payloads
-							last_synced_sha: null,
-							remote_sha: file.sha,
-							is_dirty: false,
-							is_folder: isFolder // Explicitly flag it for the router
-						});
-					} else {
-						localNote.remote_sha = file.sha;
-						localNote.is_folder = isFolder;
-						await DBService.put(localNote);
-					}
-				}
+				const count = (n) => n === 1 ? '1 file' : `${n} files`;
 				if (treeData.truncated) {
 					Status.show('⚠️ File list incomplete: GitHub truncated this tree. Mount large sub-directories separately, or mark them Shallow.', true);
 				} else {
-					Status.show('File list updated.');
+					Status.show(['File list updated.',
+						nowLocalOnly && `${count(nowLocalOnly)} deleted remotely ${nowLocalOnly === 1 ? 'is' : 'are'} now local-only.`,
+						nestedKept && `Kept ${count(nestedKept)} in subfolders with unpushed edits.`,
+					].filter(Boolean).join(' '));
 				}
 				Tabs.post({ type: Tabs.SIDEBAR_REFRESH });
 				FileList.render(DOM.searchBar.value, false);
@@ -67,7 +118,7 @@ define('actions/sync',
 				await Files.flushPendingEdit();
 				Status.show(`Pulling ${filename}...`);
 
-				// Must agree with the providers, which return a Blob for every non-text file.
+				// Must agree with the providers, whose content is a Blob for every non-text file.
 				const isBinary = FileTypes.isBinaryFile(filename);
 				const fileResponse = await SyncService.getFile(filename);
 
@@ -78,9 +129,12 @@ define('actions/sync',
 				}
 
 				if (isBinary) {
-					localNote.content = fileResponse;
+					localNote.content = fileResponse.content;
 					localNote.is_dirty = false;
-					localNote.last_synced_sha = localNote.remote_sha;
+					// Without a sha (GitHub without crypto.subtle), fall back to the listed one.
+					const sha = fileResponse.sha || localNote.remote_sha;
+					localNote.last_synced_sha = sha;
+					localNote.remote_sha = sha;
 				} else {
 					const remoteContent = Encoding.atou(fileResponse.content);
 					if (localNote.is_dirty && localNote.content !== remoteContent) {

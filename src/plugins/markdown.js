@@ -22,7 +22,9 @@ define('plugins/markdown',
 		await Dom.loadResource(R.markedKatex);
 
 		marked.use(
-			window.markedKatex({ throwOnError: false, output: 'html' }),
+			// nonStandard: inline $…$ renders next to any character, as in ($x$) or
+			// $x$'s. Write \$ for a literal dollar sign beside another one.
+			window.markedKatex({ throwOnError: false, output: 'html', nonStandard: true }),
 			{
 				renderer: {
 					image(token) {
@@ -93,10 +95,7 @@ define('plugins/markdown',
 				        // Ensure block math has a preceding empty line (prevents it being swallowed by paragraphs)
 				        .replace(/([^\n])\n(\s*\$\$)/g, '$1\n\n$2')
 				        // Ensure block math has a following empty line
-				        .replace(/(\$\$\s*)\n([^\n])/g, '$1\n\n$2')
-				        // Add a space between math and trailing punctuation/hyphens ($x$) -> $x$ )
-				        // This prevents the regex boundary check from failing in marked-katex-extension
-				        .replace(/(\$[^$\n]+\$)([\-\)\],\.\;\:])/g, '$1 $2');
+				        .replace(/(\$\$\s*)\n([^\n])/g, '$1\n\n$2');
 
 				// 1. Register a secure hook BEFORE sanitization
 				// This safely enforces new tabs for all links during the sanitization pass

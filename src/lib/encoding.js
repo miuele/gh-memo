@@ -16,5 +16,20 @@ define('lib/encoding', [], () => {
 		return btoa(binary);
 	};
 
-	return { utoa, atou, blobToBase64 };
+	// Git's blob id for these bytes: SHA-1 of "blob <size>\0" + bytes, which is
+	// the sha GitHub lists and expects. Null where crypto.subtle is missing
+	// (plain http from another host).
+	const gitBlobSha = async (blob) => {
+		const subtle = globalThis.crypto && globalThis.crypto.subtle;
+		if (!subtle) return null;
+		const bytes = new Uint8Array(await new Response(blob).arrayBuffer());
+		const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
+		const data = new Uint8Array(header.length + bytes.length);
+		data.set(header);
+		data.set(bytes, header.length);
+		const digest = new Uint8Array(await subtle.digest('SHA-1', data));
+		return Array.from(digest, b => b.toString(16).padStart(2, '0')).join('');
+	};
+
+	return { utoa, atou, blobToBase64, gitBlobSha };
 });

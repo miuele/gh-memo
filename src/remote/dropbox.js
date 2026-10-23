@@ -86,6 +86,16 @@ define('remote/dropbox', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'
 			return res;
 		},
 
+		// Dropbox answers every endpoint-specific error with 409 and names it in
+		// error_summary (e.g. "path/conflict/file/..", "path/insufficient_space/..").
+		// Only a conflict means the remote moved on; the rest are reported as they are.
+		async _endpointError(res, fallback) {
+			const err = await res.json().catch(() => ({}));
+			const summary = err.error_summary || '';
+			if (res.status === 409 && /(^|\/)conflict\//.test(summary)) return new Error("Conflict: Remote has newer changes. Please Pull first.");
+			return new Error(summary ? `Dropbox: ${summary.replace(/\/+\.*$/, '')}` : fallback);
+		},
+
 		/* =====================================================================
 		   TREE OPERATIONS
 		===================================================================== */
@@ -150,7 +160,7 @@ define('remote/dropbox', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'
 			
 			if (!FileTypes.isTextFile(filename)) {
 				const rawBlob = await res.blob();
-				return new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) });
+				return { content: new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) }), sha: rev };
 			}
 
 			return { content: Encoding.utoa(await res.text()), sha: rev };
@@ -176,11 +186,7 @@ define('remote/dropbox', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'
 				body: bytes 
 			}, true, customHeaders, keychain);
 
-			if (res.status === 409) throw new Error("Conflict: Remote has newer changes. Please Pull first.");
-			if (!res.ok) {
-				const err = await res.json().catch(() => ({}));
-				throw new Error(err.error_summary || "Upload failed");
-			}
+			if (!res.ok) throw await this._endpointError(res, "Upload failed");
 			
 			return { content: { sha: (await res.json()).rev } };
 		},
@@ -188,13 +194,16 @@ define('remote/dropbox', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'
 		async deleteFile(filename, sha, workspace, keychain) {
 			const fullPath = this._getFullPath(workspace.rootDir, filename);
 			const url = 'https://api.dropboxapi.com/2/files/delete_v2';
-			const payload = { path: fullPath };
-			
+			// parent_rev: delete only if the file is still at the synced version.
+			const payload = sha ? { path: fullPath, parent_rev: sha } : { path: fullPath };
+
 			const res = await this._apiFetch(url, { method: 'POST', body: JSON.stringify(payload) }, false, {}, keychain);
-			
-			if (!res.ok && res.status !== 404 && res.status !== 409) {
-				throw new Error("Dropbox deletion failed.");
-			}
+			if (res.ok || res.status === 404) return;
+
+			// A file that is already gone counts as deleted.
+			const error = await this._endpointError(res, "Dropbox deletion failed.");
+			if (res.status === 409 && /path_lookup\/not_found/.test(error.message)) return;
+			throw error;
 		},
 		
 		fileUploadSizeLimit() {

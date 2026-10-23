@@ -1,5 +1,7 @@
 # Control panels
 
+This plugin is not built in by default. Build it in with `make PLUGINS="image pdf markdown panel text"` (it must come before `text`, which also claims `.json` files).
+
 A file named `*.panel.json` opens as a form, and a file named `*.status.json` opens as a read-only dashboard. A panel edits only its own file, and also reads the stored status file of the same name (`home.panel.json` reads `home.status.json` in the same folder). Neither uses the network. You sync both with the usual Pull and Push, with any provider.
 
 The form is described by the panel file itself, and the values you set are stored in the same file. A program elsewhere reads the file to pick up the values, and can write a status file for you to look at.

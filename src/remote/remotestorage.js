@@ -132,7 +132,7 @@ define('remote/remotestorage', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/enc
 
 			if (!FileTypes.isTextFile(filename)) {
 				const rawBlob = await res.blob();
-				return new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) });
+				return { content: new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) }), sha: this._etag(res) };
 			}
 			return { content: Encoding.utoa(await res.text()), sha: this._etag(res) };
 		},

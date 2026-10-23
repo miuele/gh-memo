@@ -13,7 +13,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+export const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
 	e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.js') ? [path.join(dir, e.name)] : []);
@@ -22,6 +22,7 @@ export const moduleFiles = () => [
 	...walk(path.join(ROOT, 'src')).filter(f => !f.endsWith(path.join('src', 'define.js'))).sort(),
 	path.join(ROOT, 'build', 'resources.js'),
 	path.join(ROOT, 'build', 'buildInfo.js'),
+	path.join(ROOT, 'build', 'plugins', 'registry.js'),
 ];
 
 export const relative = (file) => path.relative(ROOT, file);

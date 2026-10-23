@@ -130,6 +130,33 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}), 'Saving note', dbName);
 			this._written(dbName, note.filename);
 		},
+		// Reads every note and applies what plan(notes) returns, { put: [notes],
+		// delete: [filenames] }, in the same readwrite transaction, so no other
+		// write lands in between. plan must be synchronous. Returns its result.
+		async rewriteAll(plan, dbName = this.dbName) {
+			let changes = {};
+			await this._run(db => new Promise((resolve, reject) => {
+				const tx = db.transaction(this.storeName, 'readwrite');
+				const store = tx.objectStore(this.storeName);
+				const request = store.getAll();
+				request.onsuccess = () => {
+					try {
+						changes = plan(request.result) || {};
+					} catch (err) {
+						tx.abort();
+						return reject(err);
+					}
+					for (const note of changes.put || []) store.put(note);
+					for (const filename of changes.delete || []) store.delete(filename);
+				};
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+			}), 'Updating notes', dbName);
+			for (const note of changes.put || []) this._written(dbName, note.filename);
+			for (const filename of changes.delete || []) this._written(dbName, filename);
+			return changes;
+		},
 		async get(filename, dbName) {
 			return this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readonly');

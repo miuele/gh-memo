@@ -3,7 +3,7 @@
 // in-memory config directly as you type; every committed change (the
 // 'change' event: blur, Enter, a checkbox or select) persists it through
 // handlers.save() and briefly shows "Saved ✓".
-define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/config', 'model/forest', 'buildInfo'], (DOM, Status, Dom, Path, Config, Forest, BuildInfo) => {
+define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'model/config', 'model/forest', 'buildInfo'], (DOM, Status, Dom, Config, Forest, BuildInfo) => {
 	const { h } = Dom;
 	let handlers = {};
 	let savedTimer = null;
@@ -205,13 +205,13 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		for (const id of wsIds) {
 			const ws = Config.workspaces[id];
 			const isActive = id === Config.activeWorkspaceId;
-			listEl.appendChild(createMountRow(id, ws, wsIds, isActive, rowTemplate));
+			listEl.appendChild(createMountRow(id, ws, isActive, rowTemplate));
 		}
 
 		return groupEl;
 	};
 
-	const createMountRow = (id, ws, wsIds, isActive, rowTemplate) => {
+	const createMountRow = (id, ws, isActive, rowTemplate) => {
 		const rowClone = rowTemplate.content.cloneNode(true);
 		const rowEl = rowClone.querySelector('.mount-row');
 
@@ -228,21 +228,13 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		rootEl.value = ws.rootDir || '';
 		rootEl.addEventListener('input', e => ws.rootDir = e.target.value);
 
-		// Leaf Constraint Visualization
-		const currentRoot = Path.cleanPath(ws.rootDir);
-		const hasChildren = wsIds.some(childId => {
-			if (childId === id) return false;
-			const childRoot = Path.cleanPath(Config.workspaces[childId].rootDir);
-			return childRoot.startsWith(currentRoot ? currentRoot + '/' : '');
-		});
-
-		if (hasChildren) {
-			shallowEl.checked = true;
+		// Leaf constraint: actions/settings keeps ws.shallow set while a mount
+		// is below; the row only shows that it can't be unticked.
+		shallowEl.checked = !!ws.shallow;
+		if (Forest.hasMountsBelow(id)) {
 			shallowEl.disabled = true;
-			ws.shallow = true;
 			warningEl.style.display = 'inline';
 		} else {
-			shallowEl.checked = !!ws.shallow;
 			shallowEl.addEventListener('change', e => ws.shallow = e.target.checked);
 		}
 

@@ -169,3 +169,58 @@ test('remotestorage: the tree signature is the storage URL', () => {
 	const Forest = load({ fakes: { 'model/config': {} } })('model/forest');
 	assert.equal(Forest.computeTreeSig({ host: 'https://rs.example/storage/' }, { provider: 'remotestorage' }), 'remotestorage|https://rs.example/storage');
 });
+
+test('binaries: getFile returns the Blob with the id of exactly those bytes (C6)', async () => {
+	const globals = { crypto: globalThis.crypto };
+	const Encoding = load({ globals })('lib/encoding');
+	assert.equal(await Encoding.gitBlobSha(new Blob([])), 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391', "git's empty blob");
+	assert.equal(await Encoding.gitBlobSha(new Blob(['hello\n'])), 'ce013625030ba8dba906f756967f9e9ca394464a', 'as `git hash-object`');
+	assert.equal(await load()('lib/encoding').gitBlobSha(new Blob(['x'])), null, 'no crypto.subtle: no sha');
+
+	const GitHub = load({ fakes: { 'lib/net': fakeNet([{ status: 200, text: 'hello\n' }]) }, globals })('remote/github');
+	const gh = await GitHub.getFile('a.png', ws, kc);
+	assert.equal(gh.sha, 'ce013625030ba8dba906f756967f9e9ca394464a');
+	assert.equal(gh.content.type, 'image/png');
+	assert.equal(await gh.content.text(), 'hello\n');
+
+	const Dropbox = load({ fakes: { 'lib/net': fakeNet([{ status: 200, text: 'x', headers: { 'Dropbox-API-Result': '{"rev":"r9"}' } }]), 'model/config': {} } })('remote/dropbox');
+	const dbx = await Dropbox.getFile('a.png', { rootDir: '' }, { token: 't' });
+	assert.equal(dbx.sha, 'r9');
+	assert.equal(dbx.content.type, 'image/png');
+
+	const Rs = load({ fakes: { 'lib/net': fakeNet([{ status: 200, text: 'x', headers: { ETag: '"e7"' } }]) } })('remote/remotestorage');
+	const rs = await Rs.getFile('a.png', rsWs, rsKc);
+	assert.equal(rs.sha, 'e7');
+	assert.equal(rs.content.type, 'image/png');
+});
+
+test('dropbox: delete is conditional on the rev, and 409s are told apart by error_summary (C7)', async () => {
+	const net = fakeNet([
+		{ status: 200, body: {} },
+		{ status: 409, body: { error_summary: 'path_lookup/not_found/..' } },
+		{ status: 409, body: { error_summary: 'path_write/conflict/file/..' } },
+		{ status: 409, body: { error_summary: 'too_many_write_operations/' } },
+		{ status: 409, body: { error_summary: 'path/conflict/file/..' } },
+		{ status: 409, body: { error_summary: 'path/insufficient_space/..' } },
+		{ status: 409, body: {} },
+	]);
+	const Dropbox = load({ fakes: { 'lib/net': net, 'model/config': {} } })('remote/dropbox');
+	const w = { rootDir: 'Notes' }, k = { token: 't' };
+
+	await Dropbox.deleteFile('a.md', 'r1', w, k);
+	same(JSON.parse(net.calls[0].body), { path: '/Notes/a.md', parent_rev: 'r1' });
+	await Dropbox.deleteFile('gone.md', 'r1', w, k);   // already gone: deleted
+	await assert.rejects(Dropbox.deleteFile('a.md', 'r1', w, k), /Please Pull first/);
+	await assert.rejects(Dropbox.deleteFile('a.md', 'r1', w, k), /^Error: Dropbox: too_many_write_operations$/);
+
+	await assert.rejects(Dropbox.putFile('a.md', 'QQ==', 'r1', null, w, k), /Please Pull first/);
+	await assert.rejects(Dropbox.putFile('a.md', 'QQ==', 'r1', null, w, k), /^Error: Dropbox: path\/insufficient_space$/);
+	await assert.rejects(Dropbox.putFile('a.md', 'QQ==', 'r1', null, w, k), /^Error: Upload failed$/);
+});
+
+test('github: a text file over 1 MB (encoding "none") is refused, not pulled as empty (C1)', async () => {
+	const net = fakeNet([{ status: 200, body: { content: '', encoding: 'none', sha: 'big', size: 2000000 } }, { status: 200, body: { content: 'QQ==', encoding: 'base64', sha: 's' } }]);
+	const GitHub = load({ fakes: { 'lib/net': net } })('remote/github');
+	await assert.rejects(GitHub.getFile('big.md', ws, kc), /over 1 MB/);
+	same(await GitHub.getFile('a.md', ws, kc), { content: 'QQ==', encoding: 'base64', sha: 's' });
+});

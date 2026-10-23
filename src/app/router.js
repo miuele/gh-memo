@@ -1,8 +1,16 @@
 // Navigation: history entries for files and workspace switches, the URL hash
 // on boot, and relative links clicked inside rendered documents.
 define('app/router',
-	['model/config', 'storage/notesDb', 'lib/path', 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/status', 'actions/files', 'actions/workspaces'],
-	(Config, DBService, Path, DOM, Editor, FileList, Status, Files, Workspaces) => {
+	['model/config', 'model/target', 'storage/notesDb', 'lib/path', 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/status', 'actions/files', 'actions/workspaces'],
+	(Config, Target, DBService, Path, DOM, Editor, FileList, Status, Files, Workspaces) => {
+
+	// Opens what a URL hash names (model/target), without adding history.
+	const openTarget = (target) => {
+		const found = Target.resolve(target);
+		if (found.error) return Status.show(found.error, true);
+		if (found.workspaceId !== Config.activeWorkspaceId || !found.filename) Workspaces.switchTo(found.workspaceId, true);
+		if (found.filename) Files.open(found.filename, true);
+	};
 
 	const onPopState = (e) => {
 		const state = e.state;
@@ -27,7 +35,7 @@ define('app/router',
 		// Route B: Cold Boot / Manual Hash Edit (No state object available)
 		const hash = window.location.hash.substring(1);
 		if (hash) {
-			Files.open(decodeURIComponent(hash), true);
+			openTarget(Target.decode(hash));
 		} else {
 			Editor.reset();
 			FileList.render(DOM.searchBar.value, false);
@@ -93,9 +101,7 @@ define('app/router',
 		// Opens the file named in the URL hash, if any.
 		openFromHash() {
 			const hash = window.location.hash.substring(1);
-			if (hash) {
-				Files.open(decodeURIComponent(hash), true);
-			}
+			if (hash) openTarget(Target.decode(hash));
 		},
 	};
 });

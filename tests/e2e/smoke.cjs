@@ -1,6 +1,6 @@
 // Optional end-to-end smoke test. Not part of `make test`: it needs Playwright.
 //
-//   make serve &                      # or any static server on dist/
+//   make PLUGINS="image pdf markdown panel text" serve &   # or any static server on dist/
 //   node tests/e2e/smoke.cjs http://localhost:8000/index.html
 //
 // GitHub, Dropbox and a remoteStorage server are mocked with page.route(), so no tokens or network
@@ -93,17 +93,20 @@ async function basics(browser) {
 	const a = await db(page, 'a.txt');
 	check(a && a.content === 'hello world' && a.is_dirty === true, 'typing autosaves to IndexedDB', a);
 	check(await header(page) === 'a.txt' && await page.title() === 'a.txt', 'header and title show file');
-	check(page.url().endsWith('#a.txt'), 'hash reflects open file', page.url());
+	check(page.url().endsWith('#github:/@main:a.txt'), 'hash is the open file\'s target (D11)', page.url());
 	check((await listText(page)).some(t => t.trim() === 'a.txt'), 'file list shows local-only file without icon', await listText(page));
 
 	await createFile(page, 'notes', 'n');
 	check(!!(await db(page, 'notes.txt')), 'extensionless name gets .txt');
 
-	await createFile(page, 'm.md', '# Title\n\nInline $x^2$ and `code`.\n\n[to a](a.txt)\n\n![pic](pic.png)\n\n```js\nconst q = 1;\n```\n');
+	await createFile(page, 'm.md', '# Title\n\nInline $x^2$ and `code`.\n\nEdges: ($a$) $b$\'s 「$c$」 $d$, e `$f$` \\$5 or \\$6\n\n[to a](a.txt)\n\n![pic](pic.png)\n\n```js\nconst q = 1;\n```\n');
 	await page.click('#view-toggle');
 	await page.waitForSelector('#view-layer h1', { timeout: 5000 }).catch(() => {});
 	check(await page.textContent('#view-layer h1').catch(() => null) === 'Title', 'markdown renders heading');
 	check(await page.$('#view-layer .katex') !== null, 'markdown renders KaTeX');
+	const edges = await page.$eval('#view-layer p:nth-of-type(2)', p => ({ math: p.querySelectorAll('.katex').length, code: p.querySelector('code')?.textContent, text: p.textContent }));
+	check(edges.math === 4 && edges.code === '$f$' && /d, e/.test(edges.text) && edges.text.endsWith('$5 or $6'),
+		'inline math renders beside punctuation and CJK, not in code or after \\$ (D9)', edges);
 	check(await page.$('#view-layer pre code.hljs') !== null, 'markdown highlights code');
 	check(await page.getAttribute('#view-layer img', 'alt') === '[Image missing locally: pic.png]', 'missing local image gets placeholder alt');
 	check(await page.getAttribute('#view-layer a', 'target') === '_blank', 'links get target=_blank');
@@ -427,6 +430,7 @@ async function settingsAndGithub(browser) {
 	const page = await newApp(browser);
 	const requests = [];
 	let remoteFile = { content: '# R', sha: 's1' };
+	let remoteGone = false;  // remote.md deleted on the remote (D5)
 	await page.route('https://api.github.com/**', async route => {
 		const req = route.request();
 		const u = new URL(req.url());
@@ -435,15 +439,17 @@ async function settingsAndGithub(browser) {
 		if (u.pathname === '/repos/o/r/git/trees/main:docs' && req.method() === 'GET') return json({ tree: [{ path: 'x.txt', type: 'blob', sha: 'sx', size: 1 }] });
 		if (u.pathname === '/repos/o/r/git/trees/main:' && req.method() === 'GET') {
 			return json({ tree: [
-				{ path: 'remote.md', type: 'blob', sha: remoteFile.sha, size: 3 },
+				...(remoteGone ? [] : [{ path: 'remote.md', type: 'blob', sha: remoteFile.sha, size: 3 }]),
+				{ path: 'pic.png', type: 'blob', sha: 'listed-before-a-change', size: 4 },
 				{ path: 'docs/x.txt', type: 'blob', sha: 'sx', size: 1 },
 				{ path: 'docs', type: 'tree', sha: 'sd' },
 			] });
 		}
+		if (u.pathname === '/repos/o/r/contents/pic.png' && req.method() === 'GET') return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.from([137, 80, 78, 71]), headers: { 'access-control-allow-origin': '*' } });
 		if (u.pathname === '/repos/o/r/contents/remote.md' && req.method() === 'GET') return json({ content: b64(remoteFile.content), sha: remoteFile.sha });
 		if (u.pathname === '/repos/o/r/contents/remote.md' && req.method() === 'PUT') return json({ content: { sha: 's3' } });
 		if (u.pathname === '/repos/o/r/contents/remote.md' && req.method() === 'DELETE') return json({});
-		if (u.pathname === '/repos/o/r/contents/' && req.method() === 'GET') return json([{ name: 'docs', sha: 'sd', type: 'dir' }, { name: 'top.md', sha: 'st', type: 'file', size: 1 }]);
+		if (u.pathname === '/repos/o/r/contents/' && req.method() === 'GET') return json([{ name: 'docs', sha: 'sd', type: 'dir' }, { name: 'top.md', sha: 'st', type: 'file', size: 1 }, { name: 'remote.md', sha: remoteFile.sha, type: 'file', size: 3 }]);
 		if (u.pathname === '/repos/o/r/contents/docs' && req.method() === 'GET') return json([{ name: 'x.txt', sha: 'sx', type: 'file', size: 1 }, { name: 'sub', sha: 'ss', type: 'dir' }]);
 		return json({ message: 'not mocked' }, 404);
 	});
@@ -498,6 +504,19 @@ async function settingsAndGithub(browser) {
 	check(n.content === '# R' && !n.is_dirty && n.last_synced_sha === 's1', 'pull updates local note', n);
 	check((await listText(page)).includes('🟢 remote.md'), 'synced icon');
 
+	// A binary pull records the git blob sha of the bytes it got, not the listed sha (C6).
+	await clickFile(page, 'pic.png');
+	await page.waitForTimeout(200);
+	await page.click('#pull-btn');
+	await page.waitForTimeout(400);
+	const pic = await db(page, 'pic.png');
+	const picSha = require('crypto').createHash('sha1').update(Buffer.concat([Buffer.from('blob 4\0'), Buffer.from([137, 80, 78, 71])])).digest('hex');
+	check(pic.content.startsWith('[Blob image/png 4') && pic.last_synced_sha === picSha && pic.remote_sha === picSha, 'binary pull records the blob sha of the bytes', pic);
+	await clickFile(page, 'remote.md');
+	await page.waitForTimeout(200);
+	await page.click('#view-toggle');   // the image viewer left the editor in view mode
+	await page.waitForTimeout(200);
+
 	await page.fill('#edit-layer textarea', '# R edited');
 	await page.waitForTimeout(700);
 	check((await listText(page)).includes('🟡 remote.md'), 'dirty icon');
@@ -508,6 +527,20 @@ async function settingsAndGithub(browser) {
 	check(body && body.sha === 's1' && body.branch === 'main' && body.message === 'Update remote.md' && Buffer.from(body.content, 'base64').toString() === '# R edited', 'push sends content + sha', body);
 	n = await db(page, 'remote.md');
 	check(!n.is_dirty && n.last_synced_sha === 's3', 'push marks clean with new sha', n);
+
+	// Deleted on the remote: Refresh makes it local-only, and Push creates it again (D5).
+	remoteGone = true;
+	await page.click('button:has-text("Refresh List")');
+	await page.waitForTimeout(400);
+	n = await db(page, 'remote.md');
+	check((await listText(page)).includes('remote.md') && n.remote_sha === null && n.last_synced_sha === null && n.is_dirty && n.content === '# R edited', 'deleted remotely: local-only, content kept', n);
+	check((await status(page)).includes('1 file deleted remotely is now local-only'), 'refresh says so', await status(page));
+	remoteGone = false;
+	await page.click('#push-btn');
+	await page.waitForTimeout(400);
+	const recreate = requests.filter(r => r.method === 'PUT').at(-1);
+	check(recreate && !JSON.parse(recreate.body).sha, 'push re-creates it without a sha', recreate && recreate.body);
+	check((await listText(page)).includes('🟢 remote.md'), 'synced again after the push');
 
 	// Commit message prompt
 	await page.evaluate(() => {});
@@ -544,7 +577,7 @@ async function settingsAndGithub(browser) {
 	page.dialogs.push('my message');
 	await page.keyboard.press('Control+s');
 	await page.waitForTimeout(400);
-	const put2 = requests.filter(r => r.method === 'PUT')[1];
+	const put2 = requests.filter(r => r.method === 'PUT').at(-1);
 	check(put2 && JSON.parse(put2.body).message === 'my message' && JSON.parse(put2.body).sha === 's3', 'Ctrl+S pushes with prompted commit message', put2 && JSON.parse(put2.body));
 
 	// Conflict: local dirty, remote changed -> overwrite with remote
@@ -593,6 +626,7 @@ async function settingsAndGithub(browser) {
 
 	const rootList = await listText(page);
 	check(rootList.some(t => t.includes('🗂️ docs/')) && rootList.includes('⬇️ top.md'), 'shallow listing; mount shows as folder', rootList);
+	check(!rootList.some(t => t.includes('docs/x.txt')) && !(await db(page, 'docs/x.txt')), 'shallow refresh drops the clean nested copy the mount owns (D7)', rootList);
 	await clickFile(page, '🗂️ docs/');
 	await page.waitForTimeout(300);
 	check((await page.textContent('#workspace-indicator')).includes('(DOCS)'), 'clicking mount switches workspace');
@@ -611,20 +645,47 @@ async function settingsAndGithub(browser) {
 	await page.waitForTimeout(400);
 	check((await page.textContent('#workspace-indicator')).includes('(DOCS)'), 'pin resolves to deepest mount');
 	check(await header(page) === 'x.txt', 'pin opens relative file in mount', await header(page));
+	check(page.url().endsWith('#github:o/r@main:docs/x.txt'), 'hash names the repo and the path from its root (D11)', page.url());
 	await page.goBack();
 	await page.waitForTimeout(300);
+	check(page.url().endsWith('#github:o/r@main:docs'), 'back to the switch into the docs mount', page.url());
+
+	// A deep link opens the right mount and file after a reload (D11).
+	await page.goto(APP_URL.replace(/#.*$/, '') + '#github:o/r@main:docs/x.txt');
+	await page.reload();
+	await page.waitForSelector('#file-list');
+	await page.waitForTimeout(400);
+	check((await page.textContent('#workspace-indicator')).includes('(DOCS)') && await header(page) === 'x.txt', 'reload on a deep link opens the mount and the file', await header(page));
+	// The service-worker check may overwrite the status bar later, so record it.
+	await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+		window.statusLog = [];
+		new MutationObserver(() => window.statusLog.push(document.getElementById('status-bar').textContent))
+			.observe(document.getElementById('status-bar'), { childList: true, subtree: true, characterData: true });
+	}));
+	await page.goto(APP_URL.replace(/#.*$/, '') + '#github:o/r@nope:x.txt');
+	await page.reload();
+	await page.waitForSelector('#file-list');
+	await page.waitForTimeout(300);
+	const statusLog = await page.evaluate(() => window.statusLog);
+	check(statusLog.some(t => t.includes('No workspace for "github:o/r@nope:x.txt"')), 'an unknown origin is named', statusLog);
 
 	// Symlink
 	await page.click('button:has-text("Setup")');
 	await page.check('.symlink-mode-label input');
 	await page.click('#file-list li:has-text("../")').catch(() => {});
 	await page.waitForTimeout(300);
-	await createFile(page, 'go.symlink', '{"rootDir": "docs"}');
+	await createFile(page, 'go.symlink', 'github:o/r@main:docs');
+	await createFile(page, 'file.symlink', './docs/x.txt');
 	await page.click('button:has-text("Setup")');
 	await page.uncheck('.symlink-mode-label input');
+	await clickFile(page, 'file.symlink');
+	await page.waitForTimeout(400);
+	check((await page.textContent('#workspace-indicator')).includes('(DOCS)') && await header(page) === 'x.txt', 'a relative symlink opens a file in another mount (E8)', await header(page));
+	await page.click('#file-list li.parent-nav');
+	await page.waitForTimeout(300);
 	await clickFile(page, 'go.symlink');
 	await page.waitForTimeout(300);
-	check((await page.textContent('#workspace-indicator')).includes('(DOCS)'), 'symlink switches workspace');
+	check((await page.textContent('#workspace-indicator')).includes('(DOCS)'), 'a symlink to a mount switches workspace');
 
 	// Clear DB of the active mount
 	page.dialogs.push(true);
@@ -639,6 +700,16 @@ async function settingsAndGithub(browser) {
 	await page.click('.mount-row.active .btn-delete');
 	await page.waitForTimeout(300);
 	check(Object.keys(await ls(page, 'notes_workspaces')).length === 1, 'workspace deleted');
+	check((await ls(page, 'notes_workspaces')).ws_default.shallow === true && !(await page.isDisabled('.mount-row .ws-shallow')) && await page.isChecked('.mount-row .ws-shallow'),
+		'parent stays shallow, and the box can be unticked again (D7)');
+
+	// Two mounts at the root are siblings: neither forces the other shallow (D7).
+	await page.uncheck('.mount-row .ws-shallow');
+	page.dialogs.push('/');
+	await page.click('button:has-text("+ Add Mount Point")');
+	await page.waitForTimeout(200);
+	const both = Object.values(await ls(page, 'notes_workspaces'));
+	check(both.length === 2 && both.every(w => w.shallow === false) && !(await page.isVisible('.leaf-warning')), 'two / mounts stay deep', both.map(w => [w.rootDir, w.shallow]));
 
 	check(page.errors.length === 0, 'no page errors', page.errors);
 	await page.context().close();
@@ -670,7 +741,20 @@ async function dropbox(browser) {
 	await page.waitForTimeout(500);
 	const auth = calls.find(c => c.startsWith('https://www.dropbox.com/oauth2/authorize'));
 	check(auth && auth.includes('client_id=KEY') && auth.includes('code_challenge_method=S256') && auth.includes('token_access_type=offline'), 'link redirects to Dropbox authorize', auth);
-	await page.goto(APP_URL + '?code=CODE');
+	check(/^[0-9a-f]{20,}$/.test(new URL(auth).searchParams.get('state') || ''), 'authorize carries a random state (E4)', auth);
+
+	// A reply with another state is refused, and uses up the stored request.
+	page.dialogs.push(true);
+	await page.goto(APP_URL + '?code=EVIL&state=other');
+	await page.waitForTimeout(400);
+	check(page.dialogLog.some(m => m.includes('does not match')) && !calls.some(c => c.startsWith('/oauth2/token')), 'a mismatched state is refused before any token request (E4)', page.dialogLog);
+	check(!(await ls(page, 'notes_keychains')).kc_default.token, 'no token stored');
+
+	await page.click('button:has-text("Setup")');
+	await page.click('.btn-link-dbx');
+	await page.waitForTimeout(500);
+	const state = new URL(calls.filter(c => c.startsWith('https://www.dropbox.com/oauth2/authorize')).at(-1)).searchParams.get('state');
+	await page.goto(APP_URL + `?code=CODE&state=${state}`);
 	await page.waitForTimeout(500);
 	const kc = (await ls(page, 'notes_keychains')).kc_default;
 	check(kc.provider === 'dropbox' && kc.token === 'AT' && kc.refreshToken === 'RT', 'redirect exchanges code for tokens', kc);
@@ -959,13 +1043,25 @@ async function touchLayout(browser) {
 	}
 }
 
+const builtIn = async (browser, name) => {
+	const page = await browser.newPage();
+	await page.goto(APP_URL);
+	const found = await page.evaluate(n => define.names().includes(n) && define.require('plugins/registry').plugins.includes(define.require(n)), name);
+	await page.close();
+	return found;
+};
+
 (async () => {
 	const browser = await chromium.launch();
 	try {
 		await basics(browser);
 		await pasteCheck(browser);
-		await panelForm(browser);
-		await panelCommandsAndStatus(browser);
+		if (await builtIn(browser, 'plugins/panel')) {
+			await panelForm(browser);
+			await panelCommandsAndStatus(browser);
+		} else {
+			console.log('panel: SKIPPED, not built in (make PLUGINS="image pdf markdown panel text")');
+		}
 		await markdownImages(browser);
 		const markers = await settingsAndGithub(browser);
 		await dropbox(browser);

@@ -1,6 +1,6 @@
 // GitHub Contents/Git Data API provider (strictly network operations).
 // Every method takes the workspace and keychain explicitly.
-define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, FileTypes) => {
+define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'], (Net, Path, FileTypes, Encoding) => {
 	const GitHubService = {
 		/* =====================================================================
 		   AUXILIARY HELPERS
@@ -113,14 +113,18 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 
 			const res = await this._apiFetch(url, keychain.token, { headers });
 
-			// Handle Binary Files
+			// Handle Binary Files: the raw response carries no sha, so hash the bytes.
 			if (!isText) {
 				const rawBlob = await res.blob();
-				return new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) });
+				const content = new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) });
+				return { content, sha: await Encoding.gitBlobSha(content) };
 			}
 
-			// Handle Text Files
-			return await res.json();
+			// Handle Text Files. Over 1 MB the JSON form comes without content
+			// (encoding "none"); refuse rather than pull an empty file (C1).
+			const data = await res.json();
+			if (data.encoding === 'none') throw new Error(`${filename} is over 1 MB, which GitHub doesn't send as text. Nothing was changed.`);
+			return data;
 		},
 
 		async putFile(filename, contentBase64, sha, commitMsg, workspace, keychain) {

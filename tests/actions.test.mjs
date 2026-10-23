@@ -197,7 +197,8 @@ test('sync: typing during a pull is not overwritten by the remote copy (A2)', as
 test('sync: refresh warns in the status bar when the tree was truncated (D6)', async () => {
 	const statuses = [];
 	const require = load({ fakes: {
-		'storage/notesDb': { get: async () => undefined, put: async () => {} },
+		'storage/notesDb': { dbName: 'w', rewriteAll: async (plan) => plan([]) },
+		'model/config': { activeWorkspace: { dbName: 'w', shallow: false } },
 		'remote/sync': { getTree: async () => ({ tree: [{ path: 'a.md', type: 'blob', sha: '1' }], truncated: true }) },
 		'ui/status': { show: (text, isError) => statuses.push([text, !!isError]) },
 		'ui/fileList': { render() {} },
@@ -226,3 +227,130 @@ test('pins: rekey moves a tree\'s pins to its new signature, merging without dup
 	Pins.rekey('github|nothing', 'github|else');   // no pins: nothing to do
 	assert.equal(config.saved, 2);
 });
+
+// Refresh against a fake remote listing; returns the notes left and the last status.
+async function refreshWith(notes, tree, { shallow = false, truncated = false, open = null } = {}) {
+	const db = new Map(notes.map(n => [n.filename, { ...n }]));
+	const statuses = [];
+	let reset = 0;
+	let transactions = 0;
+	const require = load({ fakes: {
+		'storage/notesDb': {
+			dbName: 'w',
+			rewriteAll: async (plan, dbName) => {
+				transactions++;
+				assert.equal(dbName, 'w');
+				const changes = plan([...db.values()].map(n => ({ ...n })));
+				for (const n of changes.put) db.set(n.filename, { ...n });
+				for (const f of changes.delete) db.delete(f);
+				return changes;
+			},
+		},
+		'model/config': { activeWorkspace: { dbName: 'w', shallow } },
+		'remote/sync': { getTree: async () => ({ tree, truncated }) },
+		'ui/editor': { currentFilename: () => open, reset: () => reset++ },
+		'ui/status': { show: (text) => statuses.push(text) },
+		'ui/fileList': { render() {} },
+		'ui/refs': { searchBar: { value: '' } },
+		'lib/tabChannel': { SIDEBAR_REFRESH: 'SIDEBAR_REFRESH', post() {} },
+	} });
+	await require('actions/sync').refreshTree();
+	assert.equal(transactions, 1, 'one read-modify-write transaction (E5)');
+	return { db, status: statuses.at(-1), reset };
+}
+
+test('sync: refresh turns files deleted remotely into local-only files, and drops empty placeholders (D5)', async () => {
+	const { db, status, reset } = await refreshWith([
+		{ filename: 'kept.md', content: 'k', remote_sha: 'k1', last_synced_sha: 'k1', is_dirty: false },
+		{ filename: 'pulled.md', content: 'p', remote_sha: 'p1', last_synced_sha: 'p1', is_dirty: false },
+		{ filename: 'edited.md', content: 'e2', remote_sha: 'e1', last_synced_sha: 'e1', is_dirty: true },
+		{ filename: 'placeholder.md', content: '', remote_sha: 'h1', last_synced_sha: null, is_dirty: false },
+		{ filename: 'gone', content: null, remote_sha: 'g1', last_synced_sha: null, is_dirty: false, is_folder: true },
+		{ filename: 'new.md', content: 'n', remote_sha: null, last_synced_sha: null, is_dirty: true },
+	], [{ path: 'kept.md', type: 'blob', sha: 'k1' }], { open: 'placeholder.md' });
+
+	for (const f of ['pulled.md', 'edited.md']) {
+		const n = db.get(f);
+		assert.equal(n.remote_sha, null, f);
+		assert.equal(n.last_synced_sha, null, `${f}: a push creates it again`);
+		assert.equal(n.is_dirty, true, `${f}: a push is not skipped as up to date`);
+	}
+	assert.equal(db.get('edited.md').content, 'e2');
+	assert.equal(db.get('kept.md').remote_sha, 'k1');
+	assert.ok(!db.has('placeholder.md') && !db.has('gone'), 'nothing local: dropped');
+	assert.equal(reset, 1, 'the open placeholder is closed');
+	assert.equal(db.get('new.md').is_dirty, true, 'never-pushed file untouched');
+	assert.match(status, /2 files deleted remotely are now local-only/);
+});
+
+test('sync: a shallow refresh drops clean nested notes and keeps edited ones (D7); a truncated one judges nothing (D5)', async () => {
+	const notes = [
+		{ filename: 'sub/deep.md', content: 'd', remote_sha: 'd1', last_synced_sha: 'd1', is_dirty: false },
+		{ filename: 'sub/edited.md', content: 'e2', remote_sha: 'e1', last_synced_sha: 'e1', is_dirty: true },
+		{ filename: 'sub/new.md', content: 'n', remote_sha: null, last_synced_sha: null, is_dirty: true },
+		{ filename: 'top.md', content: 't', remote_sha: 't1', last_synced_sha: 't1', is_dirty: false },
+	];
+	const shallow = await refreshWith(notes, [{ path: 'sub', type: 'folder', sha: 's' }], { shallow: true });
+	assert.ok(!shallow.db.has('sub/deep.md'), 'clean nested note dropped');
+	assert.equal(shallow.db.get('sub/edited.md').remote_sha, 'e1', 'edited nested note kept as it was');
+	assert.ok(shallow.db.has('sub/new.md'), 'never-pushed nested note kept');
+	assert.equal(shallow.db.get('top.md').remote_sha, null, 'top level is judged (D5)');
+	assert.match(shallow.status, /Kept 2 files in subfolders with unpushed edits/);
+
+	const truncated = await refreshWith(notes, [], { truncated: true });
+	assert.equal(truncated.db.get('top.md').remote_sha, 't1');
+	assert.equal(truncated.db.get('sub/deep.md').remote_sha, 'd1');
+});
+
+test('forest + settings: a mount below forces its parent shallow, equal roots do not, and the flag stays (D7)', () => {
+	const config = {
+		keychains: { k: { provider: 'github' } },
+		workspaces: {
+			root: { keychainId: 'k', host: 'h', owner: 'o', repo: 'r', branch: 'main', rootDir: '', shallow: false },
+			root2: { keychainId: 'k', host: 'h', owner: 'o', repo: 'r', branch: 'main', rootDir: '/', shallow: false },
+			other: { keychainId: 'k', host: 'h', owner: 'o', repo: 'other', branch: 'main', rootDir: 'docs', shallow: false },
+		},
+		saveKeychains() {}, saveWorkspaces() {},
+	};
+	let renders = 0;
+	const require = load({ fakes: { 'model/config': config, 'ui/settings': { render: () => renders++ } } });
+	const Forest = require('model/forest');
+	const Settings = require('actions/settings');
+
+	assert.equal(Forest.hasMountsBelow('root'), false, 'two mounts at / are siblings');
+	assert.equal(Forest.hasMountsBelow('root2'), false);
+	Settings.save();
+	assert.equal(config.workspaces.root.shallow, false, 'a mount in another tree does not count');
+	assert.equal(renders, 0, 'nothing forced, no re-render');
+
+	config.workspaces.docs = { ...config.workspaces.root, rootDir: 'docs/' };
+	config.workspaces.docsdeep = { ...config.workspaces.root, rootDir: 'docs-old' };
+	assert.equal(Forest.hasMountsBelow('docs'), false);
+	Settings.save();
+	assert.equal(config.workspaces.root.shallow && config.workspaces.root2.shallow, true, 'roots with docs below are forced shallow');
+	assert.equal(config.workspaces.docs.shallow || config.workspaces.docsdeep.shallow, false, 'docs-old is not below docs');
+	assert.equal(renders, 1, 'settings re-rendered to show it');
+
+	delete config.workspaces.docs;
+	delete config.workspaces.docsdeep;
+	Settings.save();
+	assert.equal(config.workspaces.root.shallow, true, 'stays shallow when the mounts below go away');
+});
+
+test('sync: a binary pull records the sha of the bytes it downloaded, not the listed one (C6)', async () => {
+	const blob = new Blob(['new bytes'], { type: 'image/png' });
+	const rig = raceRig({ filename: 'a.png', content: new Blob(['old']), last_synced_sha: 's0', remote_sha: 's0', is_dirty: false }, { content: blob, sha: 's2' });
+	rig.release();
+	await rig.Sync.pull();
+	const n = rig.db.get('a.png');
+	assert.equal(await n.content.text(), 'new bytes');
+	assert.equal(n.last_synced_sha, 's2');
+	assert.equal(n.remote_sha, 's2');
+
+	// Without a sha (GitHub without crypto.subtle), the listed one is kept as before.
+	const rig2 = raceRig({ filename: 'b.png', content: new Blob(['old']), last_synced_sha: 's0', remote_sha: 's1', is_dirty: false }, { content: blob, sha: null });
+	rig2.release();
+	await rig2.Sync.pull();
+	assert.equal(rig2.db.get('b.png').last_synced_sha, 's1');
+});
+

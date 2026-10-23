@@ -45,13 +45,16 @@ test('panel: validation per control type', () => {
 	assert.equal(validate({ type: 'gizmo' }, { any: 1 }), null);
 });
 
-test('panel: the plugin claims *.panel.json and *.status.json before the text plugin does', () => {
+// Not built in by default, so this checks the plugins themselves: text also
+// claims these files, which is why the README lists panel before text.
+test('panel: the plugin claims *.panel.json and *.status.json, which text would also take', () => {
 	const require = load();
-	const Registry = require('plugins/registry');
-	assert.equal(Registry.find('pc.panel.json'), require('plugins/panel'));
-	assert.equal(Registry.find('dir/X.PANEL.JSON'), require('plugins/panel'));
-	assert.equal(Registry.find('pc.status.json'), require('plugins/panel'));
-	assert.equal(Registry.find('package.json'), require('plugins/text'));
+	const Panel = require('plugins/panel'), Text = require('plugins/text');
+	for (const f of ['pc.panel.json', 'dir/X.PANEL.JSON', 'pc.status.json']) {
+		assert.ok(Panel.canHandle(f), f);
+		assert.ok(Text.canHandle(f), f);
+	}
+	assert.ok(!Panel.canHandle('package.json'));
 });
 
 test('panel: commands get sortable ids, a rev each, and old ones are pruned', () => {

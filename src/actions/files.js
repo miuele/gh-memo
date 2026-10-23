@@ -1,9 +1,9 @@
 // Local file operations: open (including mount and symlink redirection),
 // create, upload, autosave, delete and export.
 define('actions/files',
-	['model/config', 'model/forest', 'model/symlink', 'storage/notesDb', 'remote/sync', 'lib/tabChannel', 'lib/fileTypes',
+	['model/config', 'model/forest', 'model/symlink', 'model/target', 'storage/notesDb', 'remote/sync', 'lib/tabChannel', 'lib/fileTypes',
 	 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/sidebar', 'ui/status', 'actions/workspaces'],
-	(Config, Forest, Symlink, DBService, SyncService, Tabs, FileTypes,
+	(Config, Forest, Symlink, Target, DBService, SyncService, Tabs, FileTypes,
 	 DOM, Editor, FileList, Sidebar, Status, Workspaces) => {
 
 	// The debounced autosave: { filename, dbName, content } waiting for typingTimer.
@@ -35,7 +35,8 @@ define('actions/files',
 		isSymlinkEditMode: () => isSymlinkEditMode,
 		setSymlinkEditMode(value) { isSymlinkEditMode = value; },
 
-		async open(filename, skipHistory = false) {
+		// `hops` counts symlinks followed on the way here, to stop a loop.
+		async open(filename, skipHistory = false, hops = 0) {
 			await Files.flushPendingEdit();
 			const absolutePath = Forest.getAbsolutePath(Config.activeWorkspaceId, filename);
 			const matchedId = Forest.getExactMount(absolutePath);
@@ -53,7 +54,7 @@ define('actions/files',
 				// — without this, a click here would previously do nothing at all.
 				return Status.show(`Couldn't open ${filename}: ${err.message}`, true);
 			}
-			if (!note) return;
+			if (!note) return Status.show(`${filename} is not stored locally.`, true);
 
 			// --- 2. UNMOUNTED FOLDER INTERCEPTOR ---
 			if (note.is_folder) {
@@ -63,19 +64,15 @@ define('actions/files',
 
 			// --- 3. THE SYMLINK INTERCEPTOR ---
 			if (filename.endsWith('.symlink') && !isSymlinkEditMode) {
-				try {
-					const payload = Symlink.parse(note.content);
-					if (Symlink.matchableKeys(payload).length === 0) return Status.show(`⚠️ Error: Symlink contains no valid fields.`, true);
+				const target = Symlink.target(note.content);
+				if (!target) return Status.show(`⚠️ ${filename} names no target.`, true);
+				if (hops >= 8) return Status.show(`❌ Too many symlinks in a row at ${filename}.`, true);
 
-					const matchedIds = Symlink.findTargets(payload, Config.workspaces);
-
-					if (matchedIds.length === 1) return Workspaces.switchTo(matchedIds[0]);
-					else if (matchedIds.length > 1) return Status.show(`❌ Ambiguous symlink.`, true);
-					else return Status.show(`❌ Target workspace not found locally.`, true);
-
-				} catch (err) {
-					return Status.show(`⚠️ Error: Malformed symlink JSON.`, true);
-				}
+				const found = Target.resolve(target, { from: { sig: Forest.activeTreeSignature(), path: absolutePath } });
+				if (found.error) return Status.show(`❌ ${found.error}`, true);
+				if (found.workspaceId !== Config.activeWorkspaceId || !found.filename) Workspaces.switchTo(found.workspaceId, skipHistory);
+				if (found.filename) return Files.open(found.filename, skipHistory, hops + 1);
+				return;
 			}
 			// ----------------------------------
 
@@ -84,7 +81,7 @@ define('actions/files',
 			    history.pushState(
 			        { workspaceId: Config.activeWorkspaceId, filename: filename },
 			        null,
-			        '#' + encodeURIComponent(filename)
+			        '#' + Target.encode(Target.forWorkspace(Config.activeWorkspaceId, filename))
 			    );
 			}
 

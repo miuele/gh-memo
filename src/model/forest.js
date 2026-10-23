@@ -69,13 +69,14 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			return [cleanRoot, cleanFile].filter(Boolean).join('/');
 		},
 
-		// 2. Global -> Local: Slices a forest path down for a specific workspace
+		// 2. Global -> Local: Slices a forest path down for a specific workspace.
+		// Null if the path is outside the workspace's root.
 		getRelativePath(workspaceId, absolutePath) {
 			const targetRoot = cleanPath(Config.workspaces[workspaceId].rootDir);
-			if (targetRoot && absolutePath.startsWith(targetRoot)) {
-				return absolutePath.substring(targetRoot.length).replace(/^\//, '');
-			}
-			return absolutePath;
+			if (!targetRoot) return absolutePath;
+			if (absolutePath === targetRoot) return '';
+			if (absolutePath.startsWith(targetRoot + '/')) return absolutePath.substring(targetRoot.length + 1);
+			return null;
 		},
 
 		// 3. The Router: Finds the deepest workspace mounted for an absolute path,
@@ -122,7 +123,20 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			});
 		},
 
-		// 6. Navigation: Finds the nearest parent workspace for the current view
+		// 6. Leaf constraint: another workspace of the same tree is mounted strictly
+		// below this one (an equal root is a sibling, not a child). A deep listing
+		// would then also cache that mount's files, so the workspace must be shallow.
+		hasMountsBelow(workspaceId) {
+			const ws = Config.workspaces[workspaceId];
+			const sig = computeTreeSig(ws, Config.keychains[ws.keychainId]);
+			const root = cleanPath(ws.rootDir);
+			return (this.workspaceTrees()[sig] || []).some(id => {
+				const childRoot = cleanPath(Config.workspaces[id].rootDir);
+				return id !== workspaceId && childRoot !== root && (root === '' || childRoot.startsWith(root + '/'));
+			});
+		},
+
+		// 7. Navigation: Finds the nearest parent workspace for the current view
 		getParentWorkspace() {
 			const absolutePath = this.getAbsolutePath(Config.activeWorkspaceId, '');
 			if (!absolutePath) return null; // We are at the absolute root

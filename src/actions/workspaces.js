@@ -1,6 +1,6 @@
 define('actions/workspaces',
-	['model/config', 'storage/notesDb', 'lib/tabChannel', 'ui/refs', 'ui/editor', 'ui/pins', 'ui/indicator', 'ui/fileList', 'ui/status', 'ui/settings', 'actions/settings'],
-	(Config, DBService, Tabs, DOM, Editor, PinsView, Indicator, FileList, Status, SettingsView, Settings) => {
+	['model/config', 'model/target', 'storage/notesDb', 'lib/tabChannel', 'ui/refs', 'ui/editor', 'ui/pins', 'ui/indicator', 'ui/fileList', 'ui/status', 'ui/settings', 'actions/settings'],
+	(Config, Target, DBService, Tabs, DOM, Editor, PinsView, Indicator, FileList, Status, SettingsView, Settings) => {
 
 	const Workspaces = {
 		create() {
@@ -72,11 +72,9 @@ define('actions/workspaces',
 				askForCommitMsg: !!parentWs.askForCommitMsg,
 			};
 
-			SettingsView.render(); // Re-render to show the new row instantly
-			// After render: it forces a parent with mounts below it to shallow
-			// (backlog D7 moves that out of render). There's no Save button
-			// to persist it later any more.
+			Settings.forceShallowParents();
 			Config.saveWorkspaces();
+			SettingsView.render(); // Re-render to show the new row instantly
 		},
 
 		switchTo(id, skipHistory = false) {
@@ -93,7 +91,7 @@ define('actions/workspaces',
 				history.pushState(
 					{ workspaceId: id, filename: null },
 					null,
-					window.location.pathname
+					'#' + Target.encode(Target.forWorkspace(id))
 				);
 			}
 
