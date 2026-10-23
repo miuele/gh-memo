@@ -930,6 +930,35 @@ async function serviceWorkerUpdate(browser) {
 	}
 }
 
+// Touch layouts (D10): an iPad is wider than the phone breakpoint, so it gets
+// the side-by-side layout, but it has no hover to find the 6px strip.
+async function touchLayout(browser) {
+	console.log('touch layout');
+	const overflow = (page) => page.evaluate(() => {
+		const sp = document.getElementById('settings-panel');
+		const right = sp.getBoundingClientRect().right;
+		return [...sp.querySelectorAll('input, select, button, label')]
+			.filter(e => e.offsetParent && e.getBoundingClientRect().right > right + 1)
+			.map(e => e.className || e.tagName);
+	});
+	const collapsed = (page) => page.evaluate(() => document.getElementById('sidebar').classList.contains('collapsed'));
+	for (const [label, viewport, touch] of [['iPad portrait', { width: 820, height: 1180 }, true], ['phone', { width: 390, height: 844 }, true], ['desktop', { width: 1280, height: 800 }, false]]) {
+		const ctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, serviceWorkers: 'block' });
+		const page = await newApp(browser, { context: ctx });
+		await open(page);
+		const width = await page.$eval('#toggle-sidebar', e => e.getBoundingClientRect().width);
+		check(width === (touch ? 20 : 6), `${label}: strip is ${touch ? 'finger-wide' : 'thin'}`, width);
+		if (touch) await page.tap('#toggle-sidebar'); else await page.click('#toggle-sidebar');
+		check(await collapsed(page), `${label}: the strip collapses the sidebar`);
+		if (touch) await page.tap('#toggle-sidebar'); else await page.click('#toggle-sidebar');
+		check(!(await collapsed(page)), `${label}: the strip opens it again`);
+		await page.click('button:has-text("Setup")');
+		await page.evaluate(() => document.querySelectorAll('.tree-host').forEach(e => e.style.width = '320px'));  // as for remoteStorage
+		check((await overflow(page)).length === 0, `${label}: nothing in Settings sticks out of the panel`, await overflow(page));
+		await ctx.close();
+	}
+}
+
 (async () => {
 	const browser = await chromium.launch();
 	try {
@@ -943,6 +972,7 @@ async function serviceWorkerUpdate(browser) {
 		await remoteStorage(browser);
 		await crossTab(browser);
 		await editRaces(browser);
+		await touchLayout(browser);
 		await serviceWorkerUpdate(browser);
 		if (process.env.PRINT_MARKERS) console.log(JSON.stringify(markers));
 	} finally {

@@ -52,7 +52,7 @@ m4_define([[LOAD_CSS]],
 			<ul id="file-list"></ul>
 		</div>
 
-		<div id="toggle-sidebar" data-action="sidebar.toggle" title="Toggle Sidebar"></div>
+		<button id="toggle-sidebar" data-action="sidebar.toggle" title="Toggle Sidebar" aria-label="Toggle sidebar"></button>
 
 		<div id="main">
 			<div id="editor-header">
