@@ -7,8 +7,12 @@ define('actions/workspaces',
 			const kcIds = Object.keys(Config.keychains);
 			if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
-			const repoName = prompt('Enter Repository (e.g., rust-lang/cargo) or leave blank for Dropbox:');
-			if (repoName === null) return;
+			const input = prompt('Enter Repository (e.g., rust-lang/cargo), a remoteStorage URL (https://…/storage/), or leave blank for Dropbox:');
+			if (input === null) return;
+
+			// A URL is a remoteStorage storage URL, which goes in `host`.
+			const storageUrl = /^https?:\/\//i.test(input.trim()) ? input.trim() : '';
+			const repoName = storageUrl ? '' : input;
 
 			let owner = '';
 			let repo = repoName;
@@ -18,7 +22,10 @@ define('actions/workspaces',
 
 			// Auto-select the right keychain provider based on input
 			let targetKcId = kcIds[0];
-			if (!repoName) {
+			if (storageUrl) {
+				const rsKc = kcIds.find(id => Config.keychains[id].provider === 'remotestorage');
+				if (rsKc) targetKcId = rsKc;
+			} else if (!repoName) {
 				const dbxKc = kcIds.find(id => Config.keychains[id].provider === 'dropbox');
 				if (dbxKc) targetKcId = dbxKc;
 			} else {
@@ -28,10 +35,10 @@ define('actions/workspaces',
 
 			const id = 'ws_' + Date.now();
 			Config.workspaces[id] = {
-				name: repoName ? repoName : 'Dropbox Storage',
+				name: storageUrl ? 'remoteStorage' : repoName ? repoName : 'Dropbox Storage',
 				dbName: 'NotesDB_' + id,
 				keychainId: targetKcId,
-				host: 'https://api.github.com',
+				host: storageUrl || 'https://api.github.com',
 				owner: owner.trim(),
 				repo: repo.trim(),
 				branch: repoName ? 'main' : '',

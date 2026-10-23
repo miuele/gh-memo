@@ -1,6 +1,6 @@
 // Facade over the provider of the active workspace's keychain.
-define('remote/sync', ['model/config', 'remote/github', 'remote/dropbox'], (Config, GitHub, Dropbox) => {
-	const providers = { github: GitHub, dropbox: Dropbox };
+define('remote/sync', ['model/config', 'remote/github', 'remote/dropbox', 'remote/remotestorage'], (Config, GitHub, Dropbox, RemoteStorage) => {
+	const providers = { github: GitHub, dropbox: Dropbox, remotestorage: RemoteStorage };
 
 	const SyncService = {
 		get active() {

@@ -90,3 +90,82 @@ test('github: a truncated deep tree is reported (D6)', async () => {
 	const GitHub = load({ fakes: { 'lib/net': net } })('remote/github');
 	assert.equal((await GitHub.getTree(ws, kc)).truncated, true);
 });
+
+// remoteStorage: folder listings as the draft defines them.
+const rsWs = { host: 'https://rs.example/storage/', rootDir: 'notes', shallow: false };
+const rsKc = { token: 'tok' };
+const listing = (items, etag) => ({ status: 200, body: { '@context': 'http://remotestorage.io/spec/folder-description', items }, headers: { ETag: `"${etag}"` } });
+
+test('remotestorage: deep refresh walks folders, then revalidates with If-None-Match', async () => {
+	const net = fakeNet([
+		listing({ 'a.md': { ETag: 'e1', 'Content-Length': 3 }, 'sub dir/': { ETag: 'f2' } }, 'f1'),
+		listing({ 'b.png': { ETag: 'e2', 'Content-Length': 5 } }, 'f2'),
+		{ status: 304 },
+		listing({ 'a.md': { ETag: 'e9', 'Content-Length': 4 }, 'sub dir/': { ETag: 'f2' } }, 'f3'),
+	]);
+	const Rs = load({ fakes: { 'lib/net': net } })('remote/remotestorage');
+	const expected = [{ path: 'a.md', sha: 'e1', type: 'blob', size: 3 }, { path: 'sub dir/b.png', sha: 'e2', type: 'blob', size: 5 }];
+	same(await Rs.getTree(rsWs, rsKc), { tree: expected, truncated: false });
+	same(net.calls.map(c => c.url), ['https://rs.example/storage/notes/', 'https://rs.example/storage/notes/sub%20dir/']);
+	assert.equal(net.calls[0].headers.Authorization, 'Bearer tok');
+
+	// Nothing changed: one request, answered 304.
+	same(await Rs.getTree(rsWs, rsKc), { tree: expected, truncated: false });
+	assert.equal(net.calls.length, 3);
+	assert.equal(net.calls[2].headers['If-None-Match'], '"f1"');
+
+	// The root changed but the subfolder's ETag did not: it is not listed again.
+	same((await Rs.getTree(rsWs, rsKc)).tree.map(e => e.sha), ['e9', 'e2']);
+	assert.equal(net.calls.length, 4);
+});
+
+test('remotestorage: shallow lists one folder, folders included', async () => {
+	const net = fakeNet([listing({ 'a.md': { ETag: 'e1', 'Content-Length': 1 }, 'sub/': { ETag: 'f2' } }, 'f1')]);
+	const Rs = load({ fakes: { 'lib/net': net } })('remote/remotestorage');
+	same(await Rs.getTree({ ...rsWs, rootDir: '', shallow: true }, rsKc), { tree: [
+		{ path: 'a.md', sha: 'e1', type: 'blob', size: 1 }, { path: 'sub', sha: 'f2', type: 'folder', size: 0 }], truncated: false });
+	assert.equal(net.calls[0].url, 'https://rs.example/storage/');
+});
+
+test('remotestorage: writes are always conditional; 412 becomes a pull hint', async () => {
+	const net = fakeNet([
+		{ status: 200, headers: { ETag: '"new"' } },
+		{ status: 201, headers: { ETag: '"made"' } },
+		{ status: 412, body: {} },
+		{ status: 204 }, { status: 404 },
+	]);
+	const Rs = load({ fakes: { 'lib/net': net } })('remote/remotestorage');
+	same(await Rs.putFile('a#b.md', 'aGk=', 'old', 'ignored', rsWs, rsKc), { content: { sha: 'new' } });
+	assert.equal(net.calls[0].url, 'https://rs.example/storage/notes/a%23b.md');
+	assert.equal(net.calls[0].method, 'PUT');
+	assert.equal(net.calls[0].headers['If-Match'], '"old"');
+	assert.equal(net.calls[0].headers['Content-Type'], 'text/plain; charset=utf-8');
+	same(Array.from(net.calls[0].body), [104, 105]);
+
+	same(await Rs.putFile('c.md', 'aGk=', null, null, rsWs, rsKc), { content: { sha: 'made' } });
+	assert.equal(net.calls[1].headers['If-None-Match'], '*');
+	assert.equal(net.calls[1].headers['If-Match'], undefined);
+
+	await assert.rejects(Rs.putFile('a.md', 'aGk=', 'old', null, rsWs, rsKc), /Please Pull first/);
+
+	await Rs.deleteFile('a.md', 'e1', rsWs, rsKc);
+	assert.equal(net.calls[3].method, 'DELETE');
+	assert.equal(net.calls[3].headers['If-Match'], '"e1"');
+	await Rs.deleteFile('gone.md', 'e1', rsWs, rsKc);   // 404 is success
+});
+
+test('remotestorage: getFile returns base64 text and the ETag; errors come from the status', async () => {
+	const net = fakeNet([{ status: 200, text: 'héllo', headers: { ETag: '"e1"' } }, { status: 401, body: {} }]);
+	const Rs = load({ fakes: { 'lib/net': net } })('remote/remotestorage');
+	const Encoding = load()('lib/encoding');
+	const res = await Rs.getFile('a.md', rsWs, rsKc);
+	assert.equal(Encoding.atou(res.content), 'héllo');
+	assert.equal(res.sha, 'e1');
+	await assert.rejects(Rs.getFile('a.md', rsWs, rsKc), /rejected the token/);
+	assert.throws(() => Rs._storageUrl({ host: '' }), /storage URL/);
+});
+
+test('remotestorage: the tree signature is the storage URL', () => {
+	const Forest = load({ fakes: { 'model/config': {} } })('model/forest');
+	assert.equal(Forest.computeTreeSig({ host: 'https://rs.example/storage/' }, { provider: 'remotestorage' }), 'remotestorage|https://rs.example/storage');
+});

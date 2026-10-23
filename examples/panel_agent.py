@@ -10,8 +10,9 @@ The two files travel through whatever gh-memo syncs with:
 
   * a git checkout of the GitHub repository (default): the agent pulls before
     reading and commits + pushes the status file after writing it;
-  * a folder synced by the Dropbox client (--no-git): the agent just reads
-    and writes the files.
+  * a folder synced by the Dropbox client, or served by rs_server.py for the
+    remoteStorage provider (--no-git): the agent just reads and writes the
+    files.
 
 Usage:
 

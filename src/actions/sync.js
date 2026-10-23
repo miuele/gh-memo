@@ -144,8 +144,8 @@ define('actions/sync',
 				let commitMsg = null;
 				const kc = Config.activeKeychain;
 
-				// Guard: Only prompt if the toggle is on AND the provider is not Dropbox
-				if (Config.activeWorkspace.askForCommitMsg && kc && kc.provider !== 'dropbox') {
+				// Guard: Only prompt if the toggle is on AND the provider is GitHub (the only one with commits)
+				if (Config.activeWorkspace.askForCommitMsg && kc && (kc.provider || 'github') === 'github') {
 					const userMsg = prompt(`Enter commit message for ${filename}:`);
 					if (userMsg == null) return Status.show("Push cancelled.");
 					if (userMsg.trim()) commitMsg = userMsg.trim();

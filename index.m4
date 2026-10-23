@@ -85,11 +85,12 @@ m4_define([[LOAD_CSS]],
                 <select class="kc-provider">
                     <option value="github">GitHub</option>
                     <option value="dropbox">Dropbox</option>
+                    <option value="remotestorage">remoteStorage</option>
                 </select>
             </div>
             <!-- GitHub Auth -->
             <div class="form-group gh-only">
-                <label>Personal Access Token</label>
+                <label class="kc-token-label">Personal Access Token</label>
                 <div style="display: flex; gap: 6px; width: 100%;">
                     <input type="password" class="kc-token" placeholder="ghp_..." autocomplete="off" style="flex-grow: 1; min-width: 0;">
                     <button type="button" class="btn-token-toggle" style="white-space: nowrap;">Show</button>
@@ -123,11 +124,13 @@ m4_define([[LOAD_CSS]],
             <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12px;">
                 <select class="tree-keychain" style="padding: 4px;"></select>
                 <div class="tree-gh-only" style="display: flex; gap: 6px; align-items: center;">
-                    <input type="text" class="tree-owner" placeholder="Owner" style="width: 100px; padding: 4px;"> /
-                    <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
-                    <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
+                    <span class="tree-repo-fields" style="display: contents;">
+                        <input type="text" class="tree-owner" placeholder="Owner" style="width: 100px; padding: 4px;"> /
+                        <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
+                        <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
+                    </span>
                     <input type="text" class="tree-host" placeholder="Host" style="width: 150px; padding: 4px;">
-                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
+                    <label class="tree-commit-field" style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
                         <input type="checkbox" class="tree-askCommit" style="width: auto;"> Ask for commit msg
                     </label>
                 </div>

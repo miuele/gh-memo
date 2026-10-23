@@ -66,10 +66,15 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 			Status.show(copied ? 'Token copied.' : 'Copy failed: select the token and copy it by hand.', !copied);
 		});
 
+		// GitHub and remoteStorage both use a pasted token; only the wording differs.
+		const tokenLabelEl = card.querySelector('.kc-token-label');
 		const toggleVisibility = () => {
 			const isDbx = providerEl.value === 'dropbox';
+			const isRs = providerEl.value === 'remotestorage';
 			card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
 			card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
+			tokenLabelEl.textContent = isRs ? 'Bearer Token' : 'Personal Access Token';
+			tokenEl.placeholder = isRs ? 'token from the server' : 'ghp_...';
 		};
 		providerEl.addEventListener('change', toggleVisibility);
 		toggleVisibility();
@@ -111,8 +116,11 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		const titleEl = groupEl.querySelector('.tree-title');
 
 		// Set dynamic title
+		const rsTitle = (host) => `🗃️ remoteStorage ${host || '(No Storage URL)'}`;
 		if (sig.startsWith('github|')) {
 		    titleEl.textContent = `🐙 ${refWs.owner || '(No Owner)'} / ${refWs.repo || '(No Repo)'}`;
+		} else if (sig.startsWith('remotestorage|')) {
+		    titleEl.textContent = rsTitle(refWs.host);
 		} else {
 		    titleEl.textContent = `🗄️ Dropbox Storage`;
 		}
@@ -132,12 +140,20 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		}
 		selectKc.value = refWs.keychainId || '';
 
-		// Visibility Toggle for Dropbox
-		const toggleGhVisibility = () => {
+		// Visibility Toggle: Dropbox needs no origin fields, remoteStorage only the storage URL
+		const providerOf = () => {
 			const selectedKcId = selectKc.value;
-			const provider = selectedKcId && Config.keychains[selectedKcId]
+			return selectedKcId && Config.keychains[selectedKcId]
 				? Config.keychains[selectedKcId].provider : 'github';
+		};
+		const toggleGhVisibility = () => {
+			const provider = providerOf();
+			const isRs = provider === 'remotestorage';
 			ghContainer.style.display = (provider === 'dropbox') ? 'none' : 'flex';
+			groupEl.querySelector('.tree-repo-fields').style.display = isRs ? 'none' : 'contents';
+			groupEl.querySelector('.tree-commit-field').style.display = isRs ? 'none' : 'flex';
+			hostEl.placeholder = isRs ? 'Storage URL (https://…/storage/)' : 'Host';
+			hostEl.style.width = isRs ? '320px' : '150px';
 		};
 		toggleGhVisibility();
 
@@ -167,7 +183,10 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 			updateTreeTitle();
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => Config.workspaces[id].branch = e.target.value));
-		hostEl.addEventListener('input', e => wsIds.forEach(id => Config.workspaces[id].host = e.target.value));
+		hostEl.addEventListener('input', e => {
+			wsIds.forEach(id => Config.workspaces[id].host = e.target.value);
+			if (providerOf() === 'remotestorage') titleEl.textContent = rsTitle(e.target.value);
+		});
 		commitToggle.addEventListener('change', e => wsIds.forEach(id => Config.workspaces[id].askForCommitMsg = e.target.checked));
 
 		// Origin edits change the tree signature, which keys the tree's pins.

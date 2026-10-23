@@ -3,7 +3,7 @@
 //   make serve &                      # or any static server on dist/
 //   node tests/e2e/smoke.cjs http://localhost:8000/index.html
 //
-// GitHub and Dropbox are mocked with page.route(), so no tokens or network
+// GitHub, Dropbox and a remoteStorage server are mocked with page.route(), so no tokens or network
 // access are needed. CDN libraries load from the real CDN unless CDN_DIR is
 // set, in which case they are served from local copies (and SRI is bypassed,
 // since local copies are not byte-identical to the CDN builds).
@@ -699,6 +699,93 @@ async function dropbox(browser) {
 	await page.context().close();
 }
 
+// A tiny in-memory remoteStorage server behind page.route(): folder listings
+// with ETags, conditional PUT and DELETE.
+async function remoteStorage(browser) {
+	console.log('remoteStorage');
+	const page = await newApp(browser);
+	const STORAGE = 'https://rs.example/storage/';
+	const docs = new Map([['n.md', { body: 'hi', etag: 'e1' }], ['sub/x.txt', { body: 'x', etag: 'e2' }]]);
+	let version = 2;
+	const calls = [];
+	const folderEtag = (prefix) => [...docs].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => k + v.etag).join(',');
+	await page.route(STORAGE + '**', async route => {
+		const req = route.request();
+		const rel = decodeURIComponent(new URL(req.url()).pathname.slice('/storage/'.length));
+		const h = req.headers();
+		calls.push(`${req.method()} /${rel} ${h['authorization'] || ''} ${h['if-match'] || ''}${h['if-none-match'] || ''}`);
+		const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'ETag' };
+		const reply = (status, body = '', headers = {}) => route.fulfill({ status, body, headers: { ...cors, ...headers } });
+		if (h['authorization'] !== 'Bearer RSTOK') return reply(401);
+		if (rel === '' || rel.endsWith('/')) {
+			const etag = `"${folderEtag(rel)}"`;
+			if (h['if-none-match'] === etag) return reply(304, '', { etag });
+			const items = {};
+			for (const [k, v] of docs) {
+				if (!k.startsWith(rel)) continue;
+				const rest = k.slice(rel.length);
+				if (rest.includes('/')) { const sub = rest.split('/')[0] + '/'; items[sub] = { ETag: folderEtag(rel + sub) }; }
+				else items[rest] = { ETag: v.etag, 'Content-Type': 'text/plain', 'Content-Length': v.body.length };
+			}
+			return reply(200, JSON.stringify({ '@context': 'http://remotestorage.io/spec/folder-description', items }), { 'content-type': 'application/ld+json', etag });
+		}
+		const doc = docs.get(rel);
+		if (req.method() === 'GET') return doc ? reply(200, doc.body, { etag: `"${doc.etag}"`, 'content-type': 'text/plain' }) : reply(404);
+		if (req.method() === 'PUT') {
+			if (h['if-none-match'] === '*' ? doc : (!doc || h['if-match'] !== `"${doc.etag}"`)) return reply(412);
+			const etag = `e${++version}`;
+			docs.set(rel, { body: req.postData() || '', etag });
+			return reply(doc ? 200 : 201, '', { etag: `"${etag}"` });
+		}
+		return reply(405);
+	});
+	await open(page);
+	await page.click('button:has-text("Setup")');
+	await page.selectOption('.kc-provider', 'remotestorage');
+	check(await page.textContent('.kc-token-label') === 'Bearer Token', 'token label for remoteStorage');
+	await page.selectOption('.tree-keychain', { index: 0 });
+	check(!(await page.isVisible('.tree-owner')) && !(await page.isVisible('.tree-askCommit')), 'repo fields and commit toggle hidden');
+	await page.fill('.kc-token', 'RSTOK');
+	await page.fill('.tree-host', STORAGE);
+	await commitInput(page);
+	await page.waitForTimeout(100);
+	check((await page.textContent('.tree-title')).includes('remoteStorage'), 'tree title names remoteStorage', await page.textContent('.tree-title'));
+
+	await page.click('button:has-text("Refresh List")');
+	await page.waitForTimeout(400);
+	const list = await listText(page);
+	check(list.includes('⬇️ n.md') && list.some(t => t.includes('x.txt')), 'refresh walks folders', list);
+	calls.length = 0;
+	await page.click('button:has-text("Refresh List")');
+	await page.waitForTimeout(400);
+	check(calls.length === 1 && calls[0].startsWith('GET / ') && calls[0].includes('"'), 'second refresh: one revalidated listing', calls);
+
+	await clickFile(page, 'n.md');
+	await page.waitForTimeout(200);
+	await page.click('#pull-btn');
+	await page.waitForTimeout(400);
+	check(await page.inputValue('#edit-layer textarea') === 'hi', 'remoteStorage pull', await status(page));
+	await page.fill('#edit-layer textarea', 'hi there');
+	await page.waitForTimeout(700);
+	calls.length = 0;
+	await page.click('#push-btn');
+	await page.waitForTimeout(400);
+	check(docs.get('n.md').body === 'hi there' && calls.some(c => c.startsWith('PUT /n.md') && c.endsWith('"e1"')), 'push sends If-Match', calls);
+	check(page.dialogLog.length === 0, 'no commit-message prompt', page.dialogLog);
+	const n = await db(page, 'n.md');
+	check(!n.is_dirty && n.last_synced_sha === docs.get('n.md').etag, 'push records the new ETag', n);
+
+	docs.set('n.md', { body: 'changed elsewhere', etag: 'e99' });
+	await page.fill('#edit-layer textarea', 'mine');
+	await page.waitForTimeout(700);
+	await page.click('#push-btn');
+	await page.waitForTimeout(400);
+	check((await status(page)).includes('Pull first') && docs.get('n.md').body === 'changed elsewhere', 'stale push refused', await status(page));
+
+	check(page.errors.length === 0, 'no page errors', page.errors);
+	await page.context().close();
+}
+
 async function crossTab(browser) {
 	console.log('cross-tab');
 	const ctx = await browser.newContext({ serviceWorkers: 'block' });
@@ -853,6 +940,7 @@ async function serviceWorkerUpdate(browser) {
 		await markdownImages(browser);
 		const markers = await settingsAndGithub(browser);
 		await dropbox(browser);
+		await remoteStorage(browser);
 		await crossTab(browser);
 		await editRaces(browser);
 		await serviceWorkerUpdate(browser);

@@ -10,6 +10,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 	const computeTreeSig = (ws, kc) => {
 		const provider = kc ? kc.provider : 'github';
 		if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
+		if (provider === 'remotestorage') return `remotestorage|${(ws.host || '').trim().replace(/\/+$/, '')}`;
 		return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
 	};
 

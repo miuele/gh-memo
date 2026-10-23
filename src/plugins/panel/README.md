@@ -129,7 +129,7 @@ One loop, run every `heartbeat_seconds`:
 
 The program never writes the panel file.
 
-`examples/panel_agent.py` is a complete sample program (Python, standard library only) that does exactly this, through a git checkout or a Dropbox-synced folder. Its settings and commands are demonstrations, meant to be replaced.
+`examples/panel_agent.py` is a complete sample program (Python, standard library only) that does exactly this, through a git checkout, a Dropbox-synced folder, or a folder served by `examples/rs_server.py` (remoteStorage). Its settings and commands are demonstrations, meant to be replaced.
 
 ## Adding a control type
 
