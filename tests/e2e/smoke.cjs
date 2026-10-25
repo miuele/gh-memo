@@ -1016,6 +1016,36 @@ async function serviceWorkerUpdate(browser) {
 
 // Touch layouts (D10): an iPad is wider than the phone breakpoint, so it gets
 // the side-by-side layout, but it has no hover to find the 6px strip.
+// D12: rendered Markdown is a centred column of at most 48rem; wide blocks scroll inside it.
+async function markdownWidth(browser) {
+	console.log('markdown width');
+	const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="10"/>').toString('base64');
+	const cols = Array.from({ length: 30 }, (_, i) => `column${i}`);
+	const note = `# Wide\n\n${'word '.repeat(300)}\n\n| ${cols.join(' | ')} |\n|${' --- |'.repeat(30)}\n| ${cols.join(' | ')} |\n\n![w](data:image/svg+xml;base64,${svg})\n`;
+	for (const [label, viewport] of [['wide screen', { width: 1600, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+		const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+		const page = await newApp(browser, { context: ctx });
+		await open(page);
+		await createFile(page, 'wide.md', note);
+		if (await page.textContent('#view-toggle') !== '✏️') await page.click('#view-toggle');
+		await page.waitForSelector('.md-view h1', { timeout: 5000 }).catch(() => {});
+		const m = await page.evaluate(() => {
+			const layer = document.getElementById('view-layer'), a = layer.querySelector('.md-view');
+			const lr = layer.getBoundingClientRect(), ar = a.getBoundingClientRect(), pad = parseFloat(getComputedStyle(layer).paddingLeft) + parseFloat(getComputedStyle(layer).paddingRight);
+			const t = a.querySelector('table'), img = a.querySelector('img');
+			return { article: ar.width, room: layer.clientWidth - pad, left: ar.left - lr.left, right: lr.right - ar.right,
+				pageScrolls: layer.scrollWidth > layer.clientWidth, tableScrolls: t.scrollWidth > t.clientWidth, img: img.getBoundingClientRect().width };
+		});
+		if (label === 'wide screen') {
+			check(m.article === 768 && Math.abs(m.left - m.right) < 2, `${label}: the column is 48rem and centred`, m);
+		} else {
+			check(Math.abs(m.article - m.room) < 1, `${label}: the column fills the width`, m);
+		}
+		check(!m.pageScrolls && m.tableScrolls && m.img <= m.article, `${label}: a wide table scrolls inside the column and a wide image fits`, m);
+		await ctx.close();
+	}
+}
+
 async function touchLayout(browser) {
 	console.log('touch layout');
 	const overflow = (page) => page.evaluate(() => {
@@ -1068,6 +1098,7 @@ const builtIn = async (browser, name) => {
 		await remoteStorage(browser);
 		await crossTab(browser);
 		await editRaces(browser);
+		await markdownWidth(browser);
 		await touchLayout(browser);
 		await serviceWorkerUpdate(browser);
 		if (process.env.PRINT_MARKERS) console.log(JSON.stringify(markers));

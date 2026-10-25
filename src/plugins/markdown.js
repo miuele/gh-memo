@@ -158,7 +158,8 @@ define('plugins/markdown',
 
 				await Promise.all(imgPromises);
 
-				if (this.viewLayer && render === this.renders) this.viewLayer.replaceChildren(safeFragment);
+				// A column of readable width; the layer around it stays the scroll container
+				if (this.viewLayer && render === this.renders) this.viewLayer.replaceChildren(Dom.h('article', { class: 'md-view' }, safeFragment));
 			},
 
 			freeze: function() {

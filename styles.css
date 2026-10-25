@@ -211,6 +211,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .mount-row > div:first-child { flex-wrap: wrap; min-width: 0; }
 .ws-rootDir { min-width: 120px; }
 .mount-row > div:last-child { margin-left: auto !important; }
+/* Rendered Markdown (plugins/markdown): a centred column; wide blocks scroll inside it */
+.md-view { max-width: 48rem; margin: 0 auto; }
+.md-view img { max-width: 100%; }
+.md-view pre, .md-view table, .md-view .katex-display { overflow-x: auto; }
+.md-view table { display: block; max-width: 100%; }
 /* Symlink edit-mode toggle label */
 .symlink-mode-label {
 	display: flex; align-items: center; gap: 10px;
